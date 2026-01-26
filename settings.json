@@ -1,24 +1,52 @@
 {
+    "device_info": {
+        "pi_id": "PI1",
+        "device_name": "DoorController",
+        "location": "front_door"
+    },
+    "mqtt": {
+        "broker_host": "localhost",
+        "broker_port": 1883,
+        "topics": {
+            "button": "pi1/sensors/button",
+            "ultrasonic": "pi1/sensors/ultrasonic",
+            "pir": "pi1/sensors/pir",
+            "membrane_switch": "pi1/sensors/membrane_switch",
+            "led": "pi1/actuators/led",
+            "buzzer": "pi1/actuators/buzzer"
+        },
+        "batch_interval": 5
+    },
     "DS1": {
         "simulated": true,
-        "pin": 17
+        "pin": 17,
+        "name": "Door Sensor 1",
+        "type": "button"
     },
     "DL": {
         "simulated": true,
-        "pin": 27
+        "pin": 27,
+        "name": "Door Light",
+        "type": "led"
     },
     "DUS1": {
         "simulated": true,
         "trig_pin": 23,
-        "echo_pin": 24
+        "echo_pin": 24,
+        "name": "Door Ultrasonic Sensor",
+        "type": "ultrasonic"
     },
     "DB": {
         "simulated": true,
-        "pin": 22
+        "pin": 22,
+        "name": "Door Buzzer",
+        "type": "buzzer"
     },
     "DPIR1": {
         "simulated": true,
-        "pin": 5
+        "pin": 5,
+        "name": "Door PIR Motion Sensor",
+        "type": "pir"
     },
     "DMS": {
         "simulated": true,
@@ -29,6 +57,8 @@
         "C1": 12,
         "C2": 16,
         "C3": 20,
-        "C4": 21
+        "C4": 21,
+        "name": "Door Membrane Switch",
+        "type": "membrane_switch"
     }
 }
