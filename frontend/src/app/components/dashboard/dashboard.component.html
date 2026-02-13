@@ -1,0 +1,161 @@
+<!-- Header Toolbar -->
+<p-toolbar styleClass="mb-4">
+  <div class="p-toolbar-group-start">
+    <span class="text-2xl font-bold">
+      <i class="pi pi-home mr-2"></i>PI1 Smart Home Dashboard
+    </span>
+  </div>
+  <div class="p-toolbar-group-end">
+    <p-tag
+      [value]="alarmState"
+      [severity]="getAlarmSeverity()"
+      [styleClass]="alarmState === 'ALARM' ? 'alarm-active text-lg px-3 py-2' : 'text-lg px-3 py-2'"
+    ></p-tag>
+    <span class="ml-3 text-sm" [class.text-green-400]="wsConnected" [class.text-red-400]="!wsConnected">
+      <i class="pi" [class.pi-circle-fill]="wsConnected" [class.pi-circle]="!wsConnected"></i>
+      {{ wsConnected ? 'Connected' : 'Disconnected' }}
+    </span>
+  </div>
+</p-toolbar>
+
+<div class="grid p-3">
+  <!-- Alarm Control Panel -->
+  <div class="col-12 lg:col-6">
+    <p-panel header="Alarm Control" [toggleable]="true">
+      <div class="flex align-items-center gap-4 flex-wrap">
+        <div class="flex-grow-1">
+          <p class="text-xl mb-2">
+            Status:
+            <p-tag [value]="alarmState" [severity]="getAlarmSeverity()" styleClass="text-lg px-3 py-1"></p-tag>
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <button
+            pButton
+            label="Arm System"
+            icon="pi pi-shield"
+            class="p-button-warning"
+            (click)="armAlarm()"
+            [disabled]="alarmState !== 'DISARMED'"
+          ></button>
+          <button
+            pButton
+            label="Deactivate"
+            icon="pi pi-lock-open"
+            class="p-button-success"
+            (click)="showDeactivateDialog()"
+            [disabled]="alarmState === 'DISARMED'"
+          ></button>
+        </div>
+      </div>
+      <p class="text-sm text-400 mt-2">
+        When armed, door opening or motion will trigger the alarm.
+        Enter PIN on the membrane switch or via this panel to deactivate.
+      </p>
+    </p-panel>
+  </div>
+
+  <!-- People Counter -->
+  <div class="col-12 lg:col-6">
+    <p-panel header="People Inside" [toggleable]="true">
+      <div class="flex align-items-center justify-content-center gap-4">
+        <p-knob
+          [(ngModel)]="peopleCount"
+          [readonly]="true"
+          [size]="120"
+          [min]="0"
+          [max]="20"
+          valueColor="#22C55E"
+          rangeColor="#334155"
+        ></p-knob>
+        <div>
+          <p class="text-3xl font-bold mb-2">{{ peopleCount }}</p>
+          <p class="text-400">people currently inside</p>
+          <p *ngIf="lastDirection" class="mt-2">
+            Last:
+            <p-tag
+              [value]="lastDirection"
+              [severity]="lastDirection === 'ENTERING' ? 'success' : 'warning'"
+            ></p-tag>
+          </p>
+        </div>
+      </div>
+    </p-panel>
+  </div>
+
+  <!-- Sensor Status Cards -->
+  <div class="col-12">
+    <p-panel header="Sensor & Actuator Status" [toggleable]="true">
+      <div class="grid">
+        <div *ngFor="let key of objectKeys(sensors)" class="col-12 md:col-6 lg:col-4">
+          <p-card [styleClass]="'h-full'">
+            <ng-template pTemplate="header">
+              <div class="flex align-items-center justify-content-between px-3 pt-3">
+                <span class="font-bold text-lg">
+                  <i [class]="getSensorIcon(sensors[key].type) + ' mr-2'"></i>
+                  {{ key }}
+                </span>
+                <p-tag
+                  [value]="getSensorDisplayValue(sensors[key])"
+                  [severity]="getSensorSeverity(sensors[key])"
+                ></p-tag>
+              </div>
+            </ng-template>
+            <p class="text-400 mb-2">{{ sensors[key].name }}</p>
+
+            <!-- LED Controls -->
+            <div *ngIf="sensors[key].type === 'led'" class="flex gap-2 mt-2">
+              <button pButton label="ON" icon="pi pi-sun" class="p-button-sm p-button-warning" (click)="controlLed('on')"></button>
+              <button pButton label="OFF" icon="pi pi-moon" class="p-button-sm p-button-secondary" (click)="controlLed('off')"></button>
+            </div>
+
+            <!-- Buzzer Controls -->
+            <div *ngIf="sensors[key].type === 'buzzer'" class="flex gap-2 mt-2">
+              <button pButton label="ON" icon="pi pi-volume-up" class="p-button-sm p-button-danger" (click)="controlBuzzer('on')"></button>
+              <button pButton label="OFF" icon="pi pi-volume-off" class="p-button-sm p-button-secondary" (click)="controlBuzzer('off')"></button>
+              <button pButton label="Beep" icon="pi pi-bell" class="p-button-sm p-button-info" (click)="controlBuzzer('beep')"></button>
+            </div>
+          </p-card>
+        </div>
+      </div>
+    </p-panel>
+  </div>
+
+  <!-- Grafana Dashboard -->
+  <div class="col-12">
+    <p-panel header="Grafana - Sensor Data" [toggleable]="true">
+      <iframe
+        [src]="grafanaUrl | safeUrl"
+        width="100%"
+        height="600"
+        frameborder="0"
+        style="border: 1px solid var(--surface-border); border-radius: 8px;"
+      ></iframe>
+    </p-panel>
+  </div>
+</div>
+
+<!-- PIN Dialog -->
+<p-dialog
+  header="Enter PIN to Deactivate"
+  [(visible)]="showPinDialog"
+  [modal]="true"
+  [style]="{ width: '350px' }"
+>
+  <div class="flex flex-column gap-3 mt-2">
+    <span class="p-float-label">
+      <p-password
+        [(ngModel)]="pinInput"
+        [feedback]="false"
+        [toggleMask]="true"
+        inputId="pin"
+        styleClass="w-full"
+      ></p-password>
+      <label for="pin">PIN Code</label>
+    </span>
+  </div>
+  <ng-template pTemplate="footer">
+    <button pButton label="Cancel" icon="pi pi-times" class="p-button-text" (click)="showPinDialog = false"></button>
+    <button pButton label="Deactivate" icon="pi pi-check" class="p-button-success" (click)="deactivateAlarm()"></button>
+  </ng-template>
+</p-dialog>
