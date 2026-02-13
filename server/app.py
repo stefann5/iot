@@ -44,15 +44,21 @@ event_loop = None
 
 # ==================== In-memory State ====================
 sensor_states = {
-    "DS1": {"value": 0, "name": "Door Sensor", "type": "button", "timestamp": None},
+    "DS1": {"value": 0, "name": "Door Sensor 1", "type": "button", "timestamp": None},
+    "DS2": {"value": 0, "name": "Door Sensor 2", "type": "button", "timestamp": None},
     "DL": {"value": 0, "name": "Door Light", "type": "led", "timestamp": None},
-    "DUS1": {"value": 0, "name": "Ultrasonic Sensor", "type": "ultrasonic", "timestamp": None},
+    "DUS1": {"value": 0, "name": "Ultrasonic Sensor 1", "type": "ultrasonic", "timestamp": None},
+    "DUS2": {"value": 0, "name": "Ultrasonic Sensor 2", "type": "ultrasonic", "timestamp": None},
     "DB": {"value": 0, "name": "Door Buzzer", "type": "buzzer", "timestamp": None},
-    "DPIR1": {"value": 0, "name": "PIR Motion Sensor", "type": "pir", "timestamp": None},
+    "DPIR1": {"value": 0, "name": "Door PIR Sensor 1", "type": "pir", "timestamp": None},
+    "DPIR2": {"value": 0, "name": "Door PIR Sensor 2", "type": "pir", "timestamp": None},
     "DMS": {"value": "", "name": "Membrane Switch", "type": "membrane_switch", "timestamp": None},
+    "RPIR1": {"value": 0, "name": "Bedroom PIR", "type": "pir", "timestamp": None},
+    "RPIR2": {"value": 0, "name": "Master Bedroom PIR", "type": "pir", "timestamp": None},
+    "RPIR3": {"value": 0, "name": "Living Room PIR", "type": "pir", "timestamp": None},
 }
 
-alarm_state = {"state": "DISARMED", "timestamp": None}
+alarm_state = {"state": "DISARMED", "reason": "", "timestamp": None}
 people_state = {"count": 0, "last_direction": None, "timestamp": None}
 
 # ==================== InfluxDB ====================
@@ -130,9 +136,11 @@ def on_message(client, userdata, msg):
                 sensor_states[sensor_id]["value"] = value
                 sensor_states[sensor_id]["timestamp"] = timestamp
 
-            # Handle alarm state
+            # Handle alarm state (numeric: 0=disarmed, 1=alarm, 2=armed, 3=arming)
             if measurement_type == "state" and "alarm" in topic:
-                alarm_state["state"] = "ALARM" if value == 1 else "DISARMED"
+                state_map = {0: "DISARMED", 1: "ALARM", 2: "ARMED", 3: "ARMING"}
+                if isinstance(value, (int, float)):
+                    alarm_state["state"] = state_map.get(int(value), "DISARMED")
                 alarm_state["timestamp"] = timestamp
 
             # Handle alarm events
@@ -140,10 +148,18 @@ def on_message(client, userdata, msg):
                 event_val = str(value)
                 if event_val == "armed":
                     alarm_state["state"] = "ARMED"
+                elif event_val == "arming":
+                    alarm_state["state"] = "ARMING"
                 elif event_val == "alarm_activated":
                     alarm_state["state"] = "ALARM"
                 elif event_val == "alarm_deactivated":
                     alarm_state["state"] = "DISARMED"
+                    alarm_state["reason"] = ""
+                alarm_state["timestamp"] = timestamp
+
+            # Handle alarm reason
+            if measurement_type == "reason" and "alarm" in topic:
+                alarm_state["reason"] = str(value)
                 alarm_state["timestamp"] = timestamp
 
             # Handle people count

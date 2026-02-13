@@ -1,0 +1,166 @@
+PI1 Smart Home System - Implementation Summary
+=================================================
+
+OVERVIEW:
+Full IoT Smart Home system built on Raspberry Pi with Angular+PrimeNG frontend,
+FastAPI backend, MQTT messaging, InfluxDB time-series storage, and Grafana visualization.
+
+ARCHITECTURE:
+  PI Device (main.py) --MQTT--> Mosquitto --MQTT--> FastAPI Server --> InfluxDB
+                                                         |
+                                                    WebSocket
+                                                         |
+                                                   Angular Frontend  <--iframe--> Grafana
+
+==========================================================================
+IMPLEMENTED FEATURES (1-5)
+==========================================================================
+
+FEATURE 1: DPIR1 motion -> DL on for 10 seconds
+------------------------------------------------------------------------
+- When DPIR1 detects motion, door light (DL/LED) turns on for 10 seconds.
+- Timer resets if motion detected again within those 10 seconds.
+- Implemented in: main.py -> on_pir1() callback + turn_on_led_timed()
+
+FEATURE 2: Enter/Exit detection + People counting
+------------------------------------------------------------------------
+- When DPIR1 detects motion, DUS1 ultrasonic distance buffer is analyzed.
+- Algorithm compares first-half vs second-half average distances over 5 seconds.
+- Distance decreasing >10cm = person ENTERING, increasing >10cm = EXITING.
+- 3-second cooldown between detections to avoid duplicates.
+- Same logic applied to DPIR2 + DUS2 (feature 2a).
+- People count maintained with minimum bound at 0.
+- Implemented in: main.py -> PeopleCounter class + on_pir1()/on_pir2() callbacks
+
+FEATURE 3: Door open >5 seconds triggers ALARM (unlocked door simulation)
+------------------------------------------------------------------------
+- When DS1 or DS2 reports door OPEN, a 5-second timer starts.
+- If door is still open after 5 seconds, ALARM triggers from ANY state
+  (DISARMED or ARMED) - simulates an unlocked/unattended door.
+- If door closes within 5 seconds, timer is cancelled - no alarm.
+- ALARM activates buzzer (DB) and LED (DL).
+- Alarm reason is tracked and displayed on web dashboard.
+- Deactivated by entering PIN on DMS (1234#) or via web app.
+- Implemented in: main.py -> AlarmSystem.start_door_open_timer(),
+  cancel_door_open_timer(), on_door_open_timeout()
+
+FEATURE 4: DMS security alarm with delayed arming + PIN grace period
+------------------------------------------------------------------------
+- Pressing 'A' on DMS keypad starts 10-second arming countdown (ARMING state).
+- After 10 seconds, system transitions to ARMED state.
+- While ARMED, if DS1 or DS2 detects door open:
+  - 10-second grace period starts for PIN entry on DMS.
+  - If correct PIN (1234#) entered within grace period -> system disarms.
+  - If no PIN entered in time -> ALARM triggers.
+- Entering correct PIN deactivates from any state (ARMING, ARMED, ALARM).
+- Web app arm button arms immediately (no delay).
+- DMS keys: digits=PIN entry, #=submit PIN, *=clear, A=arm system.
+- Implemented in: main.py -> AlarmSystem.arm(delayed=True), ARMING state,
+  start_ds_grace_timer(), on_ds_grace_expired(), process_key()
+
+FEATURE 5: Room PIR intruder detection when facility is empty
+------------------------------------------------------------------------
+- RPIR1 (Bedroom), RPIR2 (Master Bedroom), RPIR3 (Living Room) PIR sensors
+  monitor for motion inside the facility.
+- When people count (from feature 2) is 0 AND any RPIR detects motion:
+  - ALARM triggers immediately from ANY state (DISARMED or ARMED).
+  - Reason: intruder detected in empty facility.
+- When people count > 0, RPIR motion does NOT trigger alarm.
+- Web dashboard shows warning when people count = 0.
+- Implemented in: main.py -> on_room_pir_motion(), RPIR1-3 sensor loops
+
+ALARM SYSTEM:
+------------------------------------------------------------------------
+- States: DISARMED -> ARMING (10s delay) -> ARMED -> ALARM
+- During ALARM: DB (buzzer) ON + DL (LED) ON
+- All alarm events stored in InfluxDB and visible in Grafana.
+- Web dashboard shows real-time notifications (toast) for state changes.
+- Alarm reason tracked and displayed on dashboard.
+- PIN: 1234 (configurable in settings.json)
+
+==========================================================================
+SENSORS AND ACTUATORS
+==========================================================================
+
+PI1 Sensors:
+  DS1  - Door Sensor 1 (Button)         - Monitors door open/close
+  DS2  - Door Sensor 2 (Button)         - Second door monitoring
+  DL   - Door Light (LED)               - Auto-on with PIR, alarm indicator
+  DUS1 - Door Ultrasonic Sensor 1       - Distance for enter/exit detection
+  DUS2 - Door Ultrasonic Sensor 2       - Second door distance detection
+  DB   - Door Buzzer                    - Alarm audio indicator
+  DPIR1- Door PIR Motion Sensor 1       - Motion at door 1
+  DPIR2- Door PIR Motion Sensor 2       - Motion at door 2
+  DMS  - Door Membrane Switch (4x4)     - PIN entry, alarm control
+
+Room PIR Sensors (Feature 5):
+  RPIR1- Bedroom PIR Sensor             - Intruder detection
+  RPIR2- Master Bedroom PIR Sensor      - Intruder detection
+  RPIR3- Living Room PIR Sensor         - Intruder detection
+
+All sensors configurable as simulated or real hardware via settings.json.
+
+==========================================================================
+WEB APPLICATION
+==========================================================================
+
+Frontend: Angular 17 + PrimeNG
+  - Real-time sensor monitoring via WebSocket
+  - Alarm control panel (Arm/Deactivate with PIN)
+  - People counter with knob visualization
+  - LED/Buzzer manual controls
+  - Embedded Grafana dashboard (iframe)
+  - Toast notifications for alarm events
+  - Alarm reason display
+  - ARMING state with blue pulse animation
+
+Backend: FastAPI
+  - REST API: /api/status, /api/alarm/*, /api/people-count, /api/led, /api/buzzer
+  - WebSocket: /ws for real-time updates
+  - MQTT subscriber -> InfluxDB writer
+  - All sensor states tracked in memory + persisted to InfluxDB
+
+==========================================================================
+MQTT TOPICS
+==========================================================================
+
+  pi1/sensors/button           - DS1, DS2 door state
+  pi1/sensors/ultrasonic       - DUS1, DUS2 distance readings
+  pi1/sensors/pir              - DPIR1, DPIR2, RPIR1-3 motion events
+  pi1/sensors/membrane_switch  - DMS key presses
+  pi1/actuators/led            - DL state changes
+  pi1/actuators/buzzer         - DB state changes
+  pi1/alarm/state              - Alarm state (0=disarmed, 1=alarm, 2=armed, 3=arming)
+  pi1/alarm/event              - Alarm events (armed, arming, alarm_activated, etc.)
+  pi1/alarm/reason             - Alarm trigger reason
+  pi1/people/count             - Current people count
+  pi1/people/event             - Direction (ENTERING/EXITING)
+  pi1/commands/#               - Web app commands (alarm, led, buzzer)
+
+==========================================================================
+HOW TO RUN
+==========================================================================
+
+1. Start infrastructure:    docker-compose up -d --build
+2. Run PI device script:    python main.py
+3. Access web dashboard:    http://localhost:4200
+4. Access Grafana:          http://localhost:3000 (admin/admin)
+5. Default alarm PIN:       1234
+
+==========================================================================
+FILES MODIFIED FOR FEATURES 3-5
+==========================================================================
+
+  main.py           - AlarmSystem: ARMING state, door open timers, grace timers,
+                      trigger_alarm() from any state, callbacks.
+                      PeopleCounter: multi-sensor distance buffers.
+                      New sensors: DS2, DUS2, DPIR2, RPIR1-3 initialization.
+  settings.json     - Added DS2, DUS2, DPIR2, RPIR1-3 configurations.
+  server/app.py     - Added new sensors to state tracking, ARMING state support,
+                      alarm reason handling.
+  frontend/src/app/components/dashboard/dashboard.component.ts
+                    - ARMING state handling, alarm reason tracking, notifications.
+  frontend/src/app/components/dashboard/dashboard.component.html
+                    - Alarm reason display, intruder detection warning, ARMING tag.
+  frontend/src/app/components/dashboard/dashboard.component.scss
+                    - ARMING blue pulse animation.

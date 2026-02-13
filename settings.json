@@ -16,6 +16,7 @@
             "buzzer": "pi1/actuators/buzzer",
             "alarm": "pi1/alarm/state",
             "alarm_event": "pi1/alarm/event",
+            "alarm_reason": "pi1/alarm/reason",
             "people_count": "pi1/people/count",
             "people_event": "pi1/people/event"
         },
@@ -28,6 +29,12 @@
         "name": "Door Sensor 1",
         "type": "button"
     },
+    "DS2": {
+        "simulated": true,
+        "pin": 18,
+        "name": "Door Sensor 2",
+        "type": "button"
+    },
     "DL": {
         "simulated": true,
         "pin": 27,
@@ -38,7 +45,14 @@
         "simulated": true,
         "trig_pin": 23,
         "echo_pin": 24,
-        "name": "Door Ultrasonic Sensor",
+        "name": "Door Ultrasonic Sensor 1",
+        "type": "ultrasonic"
+    },
+    "DUS2": {
+        "simulated": true,
+        "trig_pin": 25,
+        "echo_pin": 8,
+        "name": "Door Ultrasonic Sensor 2",
         "type": "ultrasonic"
     },
     "DB": {
@@ -50,7 +64,13 @@
     "DPIR1": {
         "simulated": true,
         "pin": 5,
-        "name": "Door PIR Motion Sensor",
+        "name": "Door PIR Motion Sensor 1",
+        "type": "pir"
+    },
+    "DPIR2": {
+        "simulated": true,
+        "pin": 6,
+        "name": "Door PIR Motion Sensor 2",
         "type": "pir"
     },
     "DMS": {
@@ -65,5 +85,23 @@
         "C4": 21,
         "name": "Door Membrane Switch",
         "type": "membrane_switch"
+    },
+    "RPIR1": {
+        "simulated": true,
+        "pin": 14,
+        "name": "Bedroom PIR Sensor",
+        "type": "pir"
+    },
+    "RPIR2": {
+        "simulated": true,
+        "pin": 15,
+        "name": "Master Bedroom PIR Sensor",
+        "type": "pir"
+    },
+    "RPIR3": {
+        "simulated": true,
+        "pin": 4,
+        "name": "Living Room PIR Sensor",
+        "type": "pir"
     }
 }

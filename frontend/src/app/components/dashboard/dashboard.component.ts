@@ -42,6 +42,7 @@ interface SensorState {
 export class DashboardComponent implements OnInit, OnDestroy {
   sensors: Record<string, SensorState> = {};
   alarmState = 'DISARMED';
+  alarmReason = '';
   peopleCount = 0;
   lastDirection = '';
   pinInput = '';
@@ -78,6 +79,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       next: (data) => {
         this.sensors = data.sensors || {};
         this.alarmState = data.alarm?.state || 'DISARMED';
+        this.alarmReason = data.alarm?.reason || '';
         this.peopleCount = data.people?.count || 0;
         this.lastDirection = data.people?.last_direction || '';
         this.wsConnected = true;
@@ -90,6 +92,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     if (msg.type === 'initial_state') {
       this.sensors = msg.sensors || this.sensors;
       this.alarmState = msg.alarm?.state || this.alarmState;
+      this.alarmReason = msg.alarm?.reason || '';
       this.peopleCount = msg.people?.count || 0;
       return;
     }
@@ -97,13 +100,22 @@ export class DashboardComponent implements OnInit, OnDestroy {
     if (msg.alarm) {
       const prev = this.alarmState;
       this.alarmState = msg.alarm.state || this.alarmState;
+      this.alarmReason = msg.alarm.reason || this.alarmReason;
 
       if (msg.alarm.state === 'ALARM' && prev !== 'ALARM') {
         this.messageService.add({
           severity: 'error',
           summary: 'ALARM TRIGGERED',
-          detail: 'Motion or door breach detected! Enter PIN to deactivate.',
+          detail: msg.alarm.reason || 'Motion or door breach detected! Enter PIN to deactivate.',
           life: 10000,
+        });
+      }
+      if (msg.alarm.state === 'ARMING' && prev !== 'ARMING') {
+        this.messageService.add({
+          severity: 'info',
+          summary: 'System Arming',
+          detail: 'System will arm in 10 seconds. Enter PIN to cancel.',
+          life: 5000,
         });
       }
       if (msg.alarm.state === 'ARMED' && prev !== 'ARMED') {
@@ -114,7 +126,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
           life: 5000,
         });
       }
-      if (msg.alarm.state === 'DISARMED' && prev === 'ALARM') {
+      if (msg.alarm.state === 'DISARMED' && (prev === 'ALARM' || prev === 'ARMED' || prev === 'ARMING')) {
+        this.alarmReason = '';
         this.messageService.add({
           severity: 'success',
           summary: 'Alarm Deactivated',
@@ -178,6 +191,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     switch (this.alarmState) {
       case 'ALARM': return 'danger';
       case 'ARMED': return 'warning';
+      case 'ARMING': return 'info';
       default: return 'success';
     }
   }

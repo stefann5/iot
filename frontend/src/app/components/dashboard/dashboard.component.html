@@ -9,7 +9,7 @@
     <p-tag
       [value]="alarmState"
       [severity]="getAlarmSeverity()"
-      [styleClass]="alarmState === 'ALARM' ? 'alarm-active text-lg px-3 py-2' : 'text-lg px-3 py-2'"
+      [styleClass]="alarmState === 'ALARM' ? 'alarm-active text-lg px-3 py-2' : alarmState === 'ARMING' ? 'arming-pulse text-lg px-3 py-2' : 'text-lg px-3 py-2'"
     ></p-tag>
     <span class="ml-3 text-sm" [class.text-green-400]="wsConnected" [class.text-red-400]="!wsConnected">
       <i class="pi" [class.pi-circle-fill]="wsConnected" [class.pi-circle]="!wsConnected"></i>
@@ -27,6 +27,10 @@
           <p class="text-xl mb-2">
             Status:
             <p-tag [value]="alarmState" [severity]="getAlarmSeverity()" styleClass="text-lg px-3 py-1"></p-tag>
+          </p>
+          <p *ngIf="alarmReason" class="text-sm text-red-400 mt-1">
+            <i class="pi pi-exclamation-triangle mr-1"></i>
+            {{ alarmReason }}
           </p>
         </div>
         <div class="flex gap-2">
@@ -51,6 +55,10 @@
       <p class="text-sm text-400 mt-2">
         When armed, door opening or motion will trigger the alarm.
         Enter PIN on the membrane switch or via this panel to deactivate.
+      </p>
+      <p class="text-sm text-400 mt-1">
+        Door open for more than 5 seconds triggers alarm automatically.
+        Room motion with 0 people inside also triggers alarm.
       </p>
     </p-panel>
   </div>
@@ -77,6 +85,10 @@
               [value]="lastDirection"
               [severity]="lastDirection === 'ENTERING' ? 'success' : 'warning'"
             ></p-tag>
+          </p>
+          <p *ngIf="peopleCount === 0" class="mt-2 text-red-400 text-sm">
+            <i class="pi pi-exclamation-circle mr-1"></i>
+            Room PIR sensors active (intruder detection)
           </p>
         </div>
       </div>
