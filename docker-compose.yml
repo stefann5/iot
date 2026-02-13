@@ -41,6 +41,9 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
       - GF_INSTALL_PLUGINS=
     volumes:
       - grafana_data:/var/lib/grafana
@@ -50,14 +53,14 @@ services:
       - influxdb
     restart: unless-stopped
 
-  # Flask Server (optional - can also run locally)
+  # FastAPI Server
   server:
     build:
       context: ./server
       dockerfile: Dockerfile
     container_name: pi1_server
     ports:
-      - "5000:5000"
+      - "8000:8000"
     environment:
       - MQTT_BROKER=mosquitto
       - MQTT_PORT=1883
@@ -68,6 +71,18 @@ services:
     depends_on:
       - mosquitto
       - influxdb
+    restart: unless-stopped
+
+  # Angular Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pi1_frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      - server
     restart: unless-stopped
 
 volumes:
