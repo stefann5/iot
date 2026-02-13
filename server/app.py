@@ -56,10 +56,19 @@ sensor_states = {
     "RPIR1": {"value": 0, "name": "Bedroom PIR", "type": "pir", "timestamp": None},
     "RPIR2": {"value": 0, "name": "Master Bedroom PIR", "type": "pir", "timestamp": None},
     "RPIR3": {"value": 0, "name": "Living Room PIR", "type": "pir", "timestamp": None},
+    # Feature 6-8 sensors
+    "GSG": {"value": {"x": 0, "y": 0, "z": 9.8, "significant": False}, "name": "Gyroscope (Patron Saint)", "type": "gyroscope", "timestamp": None},
+    "DHT1": {"value": {"temperature": 0, "humidity": 0}, "name": "Bedroom DHT", "type": "dht", "timestamp": None},
+    "DHT2": {"value": {"temperature": 0, "humidity": 0}, "name": "Master Bedroom DHT", "type": "dht", "timestamp": None},
+    "DHT3": {"value": {"temperature": 0, "humidity": 0}, "name": "Kitchen DHT", "type": "dht", "timestamp": None},
+    "LCD": {"value": {"line1": "", "line2": ""}, "name": "Living Room LCD", "type": "lcd", "timestamp": None},
+    "4SD": {"value": {"display": "00:00", "blinking": False}, "name": "Kitchen 4-Digit Display", "type": "segment_display", "timestamp": None},
+    "BTN": {"value": 0, "name": "Kitchen Button", "type": "button", "timestamp": None},
 }
 
 alarm_state = {"state": "DISARMED", "reason": "", "timestamp": None}
 people_state = {"count": 0, "last_direction": None, "timestamp": None}
+timer_state = {"remaining": 0, "display": "00:00", "running": False, "blinking": False, "btn_seconds": 10, "timestamp": None}
 
 # ==================== InfluxDB ====================
 influx_client = None
@@ -102,6 +111,7 @@ MQTT_TOPICS = [
     ("pi1/actuators/#", 0),
     ("pi1/alarm/#", 0),
     ("pi1/people/#", 0),
+    ("pi1/timer/#", 0),
 ]
 
 
@@ -171,6 +181,54 @@ def on_message(client, userdata, msg):
                 people_state["last_direction"] = str(value)
                 people_state["timestamp"] = timestamp
 
+            # Handle gyroscope data (Feature 6)
+            if measurement_type == "gyroscope" and sensor_id == "GSG":
+                try:
+                    gsg_data = json.loads(value) if isinstance(value, str) else value
+                    sensor_states["GSG"]["value"] = gsg_data
+                    sensor_states["GSG"]["timestamp"] = timestamp
+                except:
+                    pass
+
+            # Handle DHT data (Feature 7)
+            if measurement_type == "dht" and sensor_id in ["DHT1", "DHT2", "DHT3"]:
+                try:
+                    dht_data = json.loads(value) if isinstance(value, str) else value
+                    sensor_states[sensor_id]["value"] = dht_data
+                    sensor_states[sensor_id]["timestamp"] = timestamp
+                except:
+                    pass
+
+            # Handle LCD data (Feature 7)
+            if measurement_type == "lcd" and sensor_id == "LCD":
+                try:
+                    lcd_data = json.loads(value) if isinstance(value, str) else value
+                    sensor_states["LCD"]["value"] = lcd_data
+                    sensor_states["LCD"]["timestamp"] = timestamp
+                except:
+                    pass
+
+            # Handle 4SD display data (Feature 8)
+            if measurement_type == "segment_display" and sensor_id == "4SD":
+                try:
+                    sd_data = json.loads(value) if isinstance(value, str) else value
+                    sensor_states["4SD"]["value"] = sd_data
+                    sensor_states["4SD"]["timestamp"] = timestamp
+                except:
+                    pass
+
+            # Handle timer state (Feature 8)
+            if "timer" in topic and measurement_type == "state":
+                try:
+                    ts_data = json.loads(value) if isinstance(value, str) else value
+                    timer_state["remaining"] = ts_data.get("remaining", 0)
+                    timer_state["display"] = ts_data.get("display", "00:00")
+                    timer_state["running"] = ts_data.get("running", False)
+                    timer_state["blinking"] = ts_data.get("blinking", False)
+                    timer_state["timestamp"] = timestamp
+                except:
+                    pass
+
             # Write to InfluxDB
             tags = {
                 "pi_id": pi_id,
@@ -193,6 +251,7 @@ def on_message(client, userdata, msg):
             "readings": readings,
             "alarm": alarm_state,
             "people": people_state,
+            "timer": timer_state,
         }
         if event_loop:
             asyncio.run_coroutine_threadsafe(manager.broadcast(ws_data), event_loop)
@@ -251,6 +310,11 @@ class ActuatorRequest(BaseModel):
     action: str
 
 
+class TimerRequest(BaseModel):
+    action: str
+    seconds: int = 0
+
+
 # ==================== Routes ====================
 @app.get("/api/status")
 async def get_status():
@@ -258,6 +322,7 @@ async def get_status():
         "sensors": sensor_states,
         "alarm": alarm_state,
         "people": people_state,
+        "timer": timer_state,
     }
 
 
@@ -294,6 +359,20 @@ async def control_led(req: ActuatorRequest):
 async def control_buzzer(req: ActuatorRequest):
     mqtt_client.publish("pi1/commands/buzzer", json.dumps({"action": req.action}))
     return {"status": "ok"}
+
+
+@app.get("/api/timer")
+async def get_timer_status():
+    return timer_state
+
+
+@app.post("/api/timer")
+async def control_timer(req: TimerRequest):
+    payload = {"action": req.action}
+    if req.action in ["set_time", "add_seconds", "set_btn_seconds"]:
+        payload["seconds"] = req.seconds
+    mqtt_client.publish("pi1/commands/timer", json.dumps(payload))
+    return {"status": "ok", "action": req.action}
 
 
 @app.get("/api/alarm-events")
@@ -344,6 +423,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "sensors": sensor_states,
             "alarm": alarm_state,
             "people": people_state,
+            "timer": timer_state,
         })
     except Exception:
         pass

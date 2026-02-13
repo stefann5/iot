@@ -1,6 +1,7 @@
 import threading
 import time
 import json
+import math
 from collections import deque
 from settings import load_settings
 from mqtt_publisher import init_publisher, shutdown_publisher, publish_sensor_data
@@ -11,6 +12,123 @@ try:
     GPIO.setmode(GPIO.BCM)
 except:
     pass
+
+
+# ==================== KITCHEN TIMER (Feature 8) ====================
+class KitchenTimer:
+    """Kitchen countdown timer displayed on 4SD, controllable via web and BTN."""
+
+    def __init__(self):
+        self.remaining_seconds = 0
+        self.running = False
+        self.blinking = False
+        self.lock = threading.Lock()
+        self.btn_add_seconds = 10  # N seconds added per BTN press (configurable via web)
+        self._timer_thread = None
+        self._stop_event = threading.Event()
+        self._on_tick_callback = None
+        self._on_finished_callback = None
+        self._on_blink_stopped_callback = None
+
+    def set_time(self, seconds):
+        """Set timer duration (from web app)."""
+        with self.lock:
+            self.remaining_seconds = max(0, seconds)
+            self.blinking = False
+            print(f"[TIMER] Time set to {self.remaining_seconds}s ({self._format_time()})")
+            if self._on_tick_callback:
+                self._on_tick_callback(self.remaining_seconds, self._format_time(), self.blinking)
+
+    def start(self):
+        """Start the countdown."""
+        with self.lock:
+            if self.remaining_seconds <= 0:
+                return False
+            if self.running:
+                return False
+            self.running = True
+            self.blinking = False
+            self._stop_event.clear()
+
+        self._timer_thread = threading.Thread(target=self._countdown, daemon=True)
+        self._timer_thread.start()
+        print(f"[TIMER] Started: {self._format_time()}")
+        return True
+
+    def stop(self):
+        """Stop the countdown."""
+        with self.lock:
+            self.running = False
+            self._stop_event.set()
+            print("[TIMER] Stopped")
+
+    def add_seconds(self, n=None):
+        """Add N seconds to timer (BTN press). If blinking, stop blink instead."""
+        with self.lock:
+            if self.blinking:
+                self.blinking = False
+                self.running = False
+                print("[TIMER] Blinking stopped by BTN press")
+                if self._on_blink_stopped_callback:
+                    self._on_blink_stopped_callback()
+                if self._on_tick_callback:
+                    self._on_tick_callback(0, "00:00", False)
+                return
+            seconds = n if n is not None else self.btn_add_seconds
+            self.remaining_seconds += seconds
+            print(f"[TIMER] Added {seconds}s -> {self._format_time()}")
+            if self._on_tick_callback:
+                self._on_tick_callback(self.remaining_seconds, self._format_time(), self.blinking)
+
+    def set_btn_seconds(self, n):
+        """Configure how many seconds BTN adds (from web app)."""
+        with self.lock:
+            self.btn_add_seconds = max(1, n)
+            print(f"[TIMER] BTN add seconds set to {self.btn_add_seconds}")
+
+    def get_state(self):
+        """Return current timer state."""
+        with self.lock:
+            return {
+                "remaining": self.remaining_seconds,
+                "display": self._format_time(),
+                "running": self.running,
+                "blinking": self.blinking,
+                "btn_seconds": self.btn_add_seconds,
+            }
+
+    def _format_time(self):
+        """Format remaining seconds as MM:SS."""
+        mins = self.remaining_seconds // 60
+        secs = self.remaining_seconds % 60
+        return f"{mins:02d}:{secs:02d}"
+
+    def _countdown(self):
+        """Countdown thread loop."""
+        while not self._stop_event.is_set():
+            time.sleep(1)
+            if self._stop_event.is_set():
+                break
+
+            with self.lock:
+                if not self.running:
+                    break
+                self.remaining_seconds = max(0, self.remaining_seconds - 1)
+                display = self._format_time()
+                remaining = self.remaining_seconds
+
+                if self._on_tick_callback:
+                    self._on_tick_callback(remaining, display, self.blinking)
+
+                if remaining <= 0:
+                    self.running = False
+                    self.blinking = True
+                    print("[TIMER] TIME'S UP! 4SD blinking 00:00")
+                    if self._on_finished_callback:
+                        self._on_finished_callback()
+                    if self._on_tick_callback:
+                        self._on_tick_callback(0, "00:00", True)
+                    break
 
 
 # ==================== ALARM SYSTEM ====================
@@ -667,6 +785,215 @@ def main():
             threads.append(t)
             print(f"[{rpir_id}] Room PIR Sensor started")
 
+    # ==================== FEATURE 6: GSG Gyroscope Alarm ====================
+    gsg_settings = settings.get('GSG', {})
+    if gsg_settings:
+        gsg_simulated = gsg_settings.get('simulated', True)
+        gsg_threshold = gsg_settings.get('threshold', 5.0)
+
+        def on_gyroscope(x, y, z, significant):
+            publish_sensor_data("GSG", "gyroscope",
+                              json.dumps({"x": round(x, 2), "y": round(y, 2), "z": round(z, 2),
+                                         "significant": significant}),
+                              gsg_simulated, "m/s2")
+
+            if significant:
+                print(f"[GSG] SIGNIFICANT movement detected! x={x:.2f} y={y:.2f} z={z:.2f}")
+                alarm.trigger_alarm(reason="GSG gyroscope - significant movement on patron saint icon")
+
+        if gsg_simulated:
+            from simulators.gyroscope import run_gyroscope_simulator
+            t = threading.Thread(target=run_gyroscope_simulator,
+                               args=(1, on_gyroscope, stop_event), daemon=True)
+            t.start()
+            threads.append(t)
+            print("[GSG] Gyroscope simulator started")
+        else:
+            from sensors.gyroscope import run_gyroscope_loop, Gyroscope
+            gyro = Gyroscope(bus_num=gsg_settings.get('bus', 1),
+                           address=int(gsg_settings.get('address', '0x68'), 16))
+            t = threading.Thread(target=run_gyroscope_loop,
+                               args=(gyro, 1, on_gyroscope, stop_event), daemon=True)
+            t.start()
+            threads.append(t)
+            print("[GSG] Gyroscope started")
+
+    # ==================== FEATURE 7: DHT1-3 on LCD ====================
+    lcd = None
+    lcd_settings = settings.get('LCD', {})
+    if lcd_settings:
+        lcd_simulated = lcd_settings.get('simulated', True)
+        def on_lcd_change(line1, line2):
+            publish_sensor_data("LCD", "lcd",
+                              json.dumps({"line1": line1, "line2": line2}),
+                              lcd_simulated, "display")
+
+        if lcd_simulated:
+            from simulators.lcd import LCDSimulator
+            lcd = LCDSimulator(callback=on_lcd_change)
+            print("[LCD] LCD Display simulator initialized")
+        else:
+            from sensors.lcd import LCD as LCDDriver
+            lcd = LCDDriver(bus_num=lcd_settings.get('bus', 1),
+                          address=int(lcd_settings.get('address', '0x27'), 16),
+                          callback=on_lcd_change)
+            print("[LCD] LCD Display initialized")
+
+    # DHT sensors storage for LCD rotation
+    dht_readings = {}
+    dht_readings_lock = threading.Lock()
+
+    for dht_id in ["DHT1", "DHT2", "DHT3"]:
+        dht_settings = settings.get(dht_id, {})
+        if not dht_settings:
+            continue
+        dht_simulated = dht_settings.get('simulated', True)
+        sid = dht_id
+
+        def make_dht_callback(sensor_id, simulated):
+            def on_dht(temperature, humidity):
+                publish_sensor_data(sensor_id, "dht",
+                                  json.dumps({"temperature": temperature, "humidity": humidity}),
+                                  simulated, "C/%")
+                with dht_readings_lock:
+                    dht_readings[sensor_id] = {
+                        "temperature": temperature,
+                        "humidity": humidity,
+                        "timestamp": time.time()
+                    }
+            return on_dht
+
+        dht_callback = make_dht_callback(sid, dht_simulated)
+
+        if dht_simulated:
+            from simulators.dht import run_dht_simulator
+            t = threading.Thread(target=run_dht_simulator,
+                               args=(2, dht_callback, stop_event), daemon=True)
+            t.start()
+            threads.append(t)
+            print(f"[{dht_id}] DHT Sensor simulator started")
+        else:
+            from sensors.dht import run_dht_loop, DHTSensor
+            dht_sensor = DHTSensor(dht_settings['pin'])
+            t = threading.Thread(target=run_dht_loop,
+                               args=(dht_sensor, 2, dht_callback, stop_event), daemon=True)
+            t.start()
+            threads.append(t)
+            print(f"[{dht_id}] DHT Sensor started")
+
+    # LCD rotation thread - alternates DHT readings every 5 seconds
+    def lcd_rotation_loop():
+        dht_order = ["DHT1", "DHT2", "DHT3"]
+        dht_names = {"DHT1": "Bedroom", "DHT2": "Master Bed", "DHT3": "Kitchen"}
+        idx = 0
+        while not stop_event.is_set():
+            time.sleep(5)
+            if stop_event.is_set():
+                break
+            if not lcd:
+                continue
+
+            with dht_readings_lock:
+                if not dht_readings:
+                    continue
+                # Cycle through available DHTs
+                for _ in range(len(dht_order)):
+                    sensor_id = dht_order[idx % len(dht_order)]
+                    idx += 1
+                    if sensor_id in dht_readings:
+                        reading = dht_readings[sensor_id]
+                        name = dht_names.get(sensor_id, sensor_id)
+                        line1 = f"{name}: {reading['temperature']}C"
+                        line2 = f"Humidity: {reading['humidity']}%"
+                        lcd.write(line1, line2)
+                        break
+
+    lcd_thread = threading.Thread(target=lcd_rotation_loop, daemon=True)
+    lcd_thread.start()
+    threads.append(lcd_thread)
+    print("[LCD] DHT rotation display started")
+
+    # ==================== FEATURE 8: Kitchen Timer ====================
+    kitchen_timer = KitchenTimer()
+    kitchen_timer.btn_add_seconds = settings.get('timer_btn_seconds', 10)
+
+    # 4SD Display
+    segment_display = None
+    sd_settings = settings.get('4SD', {})
+    if sd_settings:
+        sd_simulated = sd_settings.get('simulated', True)
+        def on_display_change(value, blinking):
+            publish_sensor_data("4SD", "segment_display",
+                              json.dumps({"display": value, "blinking": blinking}),
+                              sd_simulated, "display")
+
+        if sd_simulated:
+            from simulators.segment_display import SegmentDisplaySimulator
+            segment_display = SegmentDisplaySimulator(callback=on_display_change)
+            print("[4SD] Segment Display simulator initialized")
+        else:
+            from sensors.segment_display import SegmentDisplay
+            segment_display = SegmentDisplay(
+                segment_pins=sd_settings['segment_pins'],
+                digit_pins=sd_settings['digit_pins'],
+                callback=on_display_change)
+            print("[4SD] Segment Display initialized")
+
+    # Kitchen Button (BTN)
+    btn_settings = settings.get('BTN', {})
+    if btn_settings:
+        btn_simulated = btn_settings.get('simulated', True)
+        last_btn_state = [False]
+
+        def on_kitchen_btn(state):
+            if state == last_btn_state[0]:
+                return
+            last_btn_state[0] = state
+            publish_sensor_data("BTN", "button", 1 if state else 0, btn_simulated, "state")
+
+            if state:
+                print("[BTN] Kitchen button PRESSED")
+                kitchen_timer.add_seconds()
+
+        if btn_simulated:
+            from simulators.button import run_button_simulator
+            t = threading.Thread(target=run_button_simulator,
+                               args=(on_kitchen_btn, stop_event), daemon=True)
+            t.start()
+            threads.append(t)
+            print("[BTN] Kitchen Button simulator started")
+        else:
+            from sensors.button import run_button_loop, Button
+            kitchen_btn = Button(btn_settings['pin'])
+            t = threading.Thread(target=run_button_loop,
+                               args=(kitchen_btn, on_kitchen_btn, stop_event), daemon=True)
+            t.start()
+            threads.append(t)
+            print("[BTN] Kitchen Button started")
+
+    # Timer callbacks -> update 4SD display
+    def on_timer_tick(remaining, display, blinking):
+        if segment_display:
+            segment_display.set_value(display)
+            segment_display.set_blinking(blinking)
+        publish_sensor_data("TIMER", "timer_state",
+                          json.dumps({"remaining": remaining, "display": display,
+                                     "running": kitchen_timer.running, "blinking": blinking}),
+                          True, "state")
+
+    def on_timer_finished():
+        publish_sensor_data("TIMER", "timer_event", "finished", True, "event")
+        print("[TIMER] Published timer finished event")
+
+    def on_blink_stopped():
+        if segment_display:
+            segment_display.set_blinking(False)
+        publish_sensor_data("TIMER", "timer_event", "blink_stopped", True, "event")
+
+    kitchen_timer._on_tick_callback = on_timer_tick
+    kitchen_timer._on_finished_callback = on_timer_finished
+    kitchen_timer._on_blink_stopped_callback = on_blink_stopped
+
     # ---- MQTT Command Subscriber (for web app commands) ----
     command_client = mqtt.Client(client_id="pi1_command_listener")
 
@@ -705,6 +1032,22 @@ def main():
                 elif action == "beep" and buzzer:
                     buzzer.beep()
 
+            elif topic == "pi1/commands/timer":
+                action = payload.get("action")
+                if action == "set_time":
+                    seconds = int(payload.get("seconds", 0))
+                    kitchen_timer.set_time(seconds)
+                elif action == "start":
+                    kitchen_timer.start()
+                elif action == "stop":
+                    kitchen_timer.stop()
+                elif action == "add_seconds":
+                    n = int(payload.get("seconds", kitchen_timer.btn_add_seconds))
+                    kitchen_timer.add_seconds(n)
+                elif action == "set_btn_seconds":
+                    n = int(payload.get("seconds", 10))
+                    kitchen_timer.set_btn_seconds(n)
+
         except Exception as e:
             print(f"[MQTT-CMD] Error processing command: {e}")
 
@@ -726,6 +1069,10 @@ def main():
         while not stop_event.is_set():
             publish_alarm_state()
             publish_sensor_data("PEOPLE", "people_count", people.get_count(), True, "count")
+            # Publish timer state
+            ts = kitchen_timer.get_state()
+            publish_sensor_data("TIMER", "timer_state",
+                              json.dumps(ts), True, "state")
             time.sleep(10)
 
     state_thread = threading.Thread(target=state_publisher, daemon=True)
@@ -740,6 +1087,10 @@ def main():
     print("  disarm     - Disarm (enter PIN when prompted)")
     print("  led on/off - Control door light")
     print("  buzz on/off/beep - Control buzzer")
+    print("  timer set N  - Set timer to N seconds")
+    print("  timer start  - Start timer")
+    print("  timer stop   - Stop timer")
+    print("  timer add N  - Add N seconds")
     print("  status     - Show system status")
     print("  exit       - Exit application")
     print("=" * 50)
@@ -769,6 +1120,20 @@ def main():
                     buzzer.turn_off()
                 elif cmd == "buzz beep" and buzzer:
                     buzzer.beep()
+                elif cmd.startswith("timer "):
+                    parts = cmd.split()
+                    if len(parts) >= 2:
+                        tcmd = parts[1]
+                        if tcmd == "set" and len(parts) >= 3:
+                            kitchen_timer.set_time(int(parts[2]))
+                        elif tcmd == "start":
+                            kitchen_timer.start()
+                        elif tcmd == "stop":
+                            kitchen_timer.stop()
+                        elif tcmd == "add" and len(parts) >= 3:
+                            kitchen_timer.add_seconds(int(parts[2]))
+                        else:
+                            print("Timer commands: timer set N, timer start, timer stop, timer add N")
                 elif cmd == "status":
                     print(f"\n  Alarm: {alarm.state}")
                     if alarm.alarm_reason:
@@ -776,8 +1141,12 @@ def main():
                     print(f"  People inside: {people.get_count()}")
                     print(f"  LED: {'ON' if led and led.get_state() else 'OFF'}")
                     print(f"  Buzzer: {'ON' if buzzer and buzzer.get_state() else 'OFF'}")
+                    ts = kitchen_timer.get_state()
+                    print(f"  Timer: {ts['display']} ({'running' if ts['running'] else 'stopped'})")
+                    if ts['blinking']:
+                        print("  Timer: BLINKING (press BTN to stop)")
                 elif cmd == "menu":
-                    print("Commands: arm, disarm, led on/off, buzz on/off/beep, status, exit")
+                    print("Commands: arm, disarm, led on/off, buzz on/off/beep, timer ..., status, exit")
                 else:
                     print("Unknown command. Type 'menu' for help.")
             except EOFError:

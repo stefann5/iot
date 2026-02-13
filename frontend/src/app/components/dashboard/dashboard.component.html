@@ -95,6 +95,93 @@
     </p-panel>
   </div>
 
+  <!-- Kitchen Timer (Feature 8) -->
+  <div class="col-12 lg:col-6">
+    <p-panel header="Kitchen Timer" [toggleable]="true">
+      <div class="flex flex-column gap-3">
+        <div class="flex align-items-center justify-content-center">
+          <span class="text-5xl font-bold" [class.text-orange-400]="timerBlinking" [class.timer-blink]="timerBlinking">
+            {{ timerDisplay }}
+          </span>
+        </div>
+        <div class="flex align-items-center justify-content-center gap-2">
+          <p-tag [value]="timerRunning ? 'RUNNING' : timerBlinking ? 'TIME UP!' : 'STOPPED'"
+                 [severity]="timerRunning ? 'success' : timerBlinking ? 'warning' : 'info'"></p-tag>
+        </div>
+        <div class="flex align-items-center gap-2">
+          <label class="w-6rem">Set Minutes:</label>
+          <p-inputNumber [(ngModel)]="timerInputMinutes" [min]="1" [max]="99" [showButtons]="true" styleClass="w-6rem"></p-inputNumber>
+          <button pButton label="Set" icon="pi pi-check" class="p-button-sm" (click)="timerSetTime()"></button>
+        </div>
+        <div class="flex gap-2">
+          <button pButton label="Start" icon="pi pi-play" class="p-button-success" (click)="timerStart()" [disabled]="timerRunning"></button>
+          <button pButton label="Stop" icon="pi pi-stop" class="p-button-danger" (click)="timerStop()" [disabled]="!timerRunning"></button>
+          <button pButton label="Add Time" icon="pi pi-plus" class="p-button-warning" (click)="timerAddSeconds()" [disabled]="timerBlinking"></button>
+          <button *ngIf="timerBlinking" pButton label="Press BTN (Stop Blink)" icon="pi pi-bell-slash" class="p-button-info" (click)="timerPressBTN()"></button>
+        </div>
+        <div class="flex align-items-center gap-2">
+          <label class="w-8rem">BTN adds (sec):</label>
+          <p-inputNumber [(ngModel)]="timerBtnSeconds" [min]="1" [max]="60" [showButtons]="true" styleClass="w-6rem"></p-inputNumber>
+          <button pButton label="Save" icon="pi pi-save" class="p-button-sm p-button-secondary" (click)="timerUpdateBtnSeconds()"></button>
+        </div>
+        <p class="text-sm text-400">
+          Press kitchen BTN to add time. When timer ends, 4SD display blinks 00:00.
+        </p>
+      </div>
+    </p-panel>
+  </div>
+
+  <!-- Gyroscope Alert (Feature 6) -->
+  <div class="col-12 lg:col-6">
+    <p-panel header="Patron Saint Icon (GSG)" [toggleable]="true">
+      <div class="flex align-items-center gap-4">
+        <i class="pi pi-compass text-5xl" [class.text-red-500]="sensors['GSG']?.value?.significant" [class.text-green-500]="!sensors['GSG']?.value?.significant"></i>
+        <div class="flex-grow-1">
+          <p class="text-xl font-bold mb-2">
+            <p-tag [value]="sensors['GSG']?.value?.significant ? 'MOVEMENT DETECTED!' : 'Stable'"
+                   [severity]="sensors['GSG']?.value?.significant ? 'danger' : 'success'"></p-tag>
+          </p>
+          <p class="text-400">Gyroscope monitors icon for theft/tampering</p>
+          <div class="flex gap-3 mt-2 text-sm">
+            <span>X: {{ sensors['GSG']?.value?.x?.toFixed(2) || '0.00' }}</span>
+            <span>Y: {{ sensors['GSG']?.value?.y?.toFixed(2) || '0.00' }}</span>
+            <span>Z: {{ sensors['GSG']?.value?.z?.toFixed(2) || '9.80' }}</span>
+          </div>
+        </div>
+      </div>
+      <p class="text-sm text-400 mt-2">
+        Significant movement triggers ALARM immediately (theft protection).
+      </p>
+    </p-panel>
+  </div>
+
+  <!-- DHT Readings (Feature 7) -->
+  <div class="col-12 lg:col-6">
+    <p-panel header="Temperature & Humidity (DHT)" [toggleable]="true">
+      <div class="grid">
+        <div class="col-4 text-center">
+          <p class="font-bold mb-1">Bedroom</p>
+          <p class="text-2xl text-blue-400">{{ sensors['DHT1']?.value?.temperature || 0 }}°C</p>
+          <p class="text-sm text-400">{{ sensors['DHT1']?.value?.humidity || 0 }}% RH</p>
+        </div>
+        <div class="col-4 text-center">
+          <p class="font-bold mb-1">Master Bed</p>
+          <p class="text-2xl text-blue-400">{{ sensors['DHT2']?.value?.temperature || 0 }}°C</p>
+          <p class="text-sm text-400">{{ sensors['DHT2']?.value?.humidity || 0 }}% RH</p>
+        </div>
+        <div class="col-4 text-center">
+          <p class="font-bold mb-1">Kitchen</p>
+          <p class="text-2xl text-blue-400">{{ sensors['DHT3']?.value?.temperature || 0 }}°C</p>
+          <p class="text-sm text-400">{{ sensors['DHT3']?.value?.humidity || 0 }}% RH</p>
+        </div>
+      </div>
+      <p class="text-sm text-400 mt-3">
+        <i class="pi pi-desktop mr-1"></i>
+        LCD Display: {{ sensors['LCD']?.value?.line1 || 'Idle' }} | {{ sensors['LCD']?.value?.line2 || '' }}
+      </p>
+    </p-panel>
+  </div>
+
   <!-- Sensor Status Cards -->
   <div class="col-12">
     <p-panel header="Sensor & Actuator Status" [toggleable]="true">

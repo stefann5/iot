@@ -19,6 +19,8 @@ import { ToolbarModule } from 'primeng/toolbar';
 import { DividerModule } from 'primeng/divider';
 import { BadgeModule } from 'primeng/badge';
 import { PasswordModule } from 'primeng/password';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { ProgressBarModule } from 'primeng/progressbar';
 
 interface SensorState {
   value: any;
@@ -35,6 +37,7 @@ interface SensorState {
     CardModule, ButtonModule, TagModule, DialogModule,
     InputTextModule, PanelModule, KnobModule, ToolbarModule,
     DividerModule, BadgeModule, PasswordModule, SafeUrlPipe,
+    InputNumberModule, ProgressBarModule,
   ],
   templateUrl: './dashboard.component.html',
   styleUrls: ['./dashboard.component.scss'],
@@ -49,6 +52,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
   showPinDialog = false;
   grafanaUrl = '';
   wsConnected = false;
+
+  // Timer state (Feature 8)
+  timerDisplay = '00:00';
+  timerRemaining = 0;
+  timerRunning = false;
+  timerBlinking = false;
+  timerInputMinutes = 5;
+  timerBtnSeconds = 10;
 
   private wsSub: Subscription | null = null;
   private pollInterval: any;
@@ -82,6 +93,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.alarmReason = data.alarm?.reason || '';
         this.peopleCount = data.people?.count || 0;
         this.lastDirection = data.people?.last_direction || '';
+        // Timer state
+        if (data.timer) {
+          this.timerDisplay = data.timer.display || '00:00';
+          this.timerRemaining = data.timer.remaining || 0;
+          this.timerRunning = data.timer.running || false;
+          this.timerBlinking = data.timer.blinking || false;
+          this.timerBtnSeconds = data.timer.btn_seconds || 10;
+        }
         this.wsConnected = true;
       },
       error: () => { this.wsConnected = false; },
@@ -94,7 +113,31 @@ export class DashboardComponent implements OnInit, OnDestroy {
       this.alarmState = msg.alarm?.state || this.alarmState;
       this.alarmReason = msg.alarm?.reason || '';
       this.peopleCount = msg.people?.count || 0;
+      // Timer initial state
+      if (msg.timer) {
+        this.timerDisplay = msg.timer.display || '00:00';
+        this.timerRemaining = msg.timer.remaining || 0;
+        this.timerRunning = msg.timer.running || false;
+        this.timerBlinking = msg.timer.blinking || false;
+        this.timerBtnSeconds = msg.timer.btn_seconds || 10;
+      }
       return;
+    }
+
+    // Handle timer updates
+    if (msg.timer) {
+      this.timerDisplay = msg.timer.display || this.timerDisplay;
+      this.timerRemaining = msg.timer.remaining ?? this.timerRemaining;
+      this.timerRunning = msg.timer.running ?? this.timerRunning;
+      this.timerBlinking = msg.timer.blinking ?? this.timerBlinking;
+      if (msg.timer.blinking && !this.timerBlinking) {
+        this.messageService.add({
+          severity: 'warn',
+          summary: "Time's Up!",
+          detail: 'Kitchen timer finished. Press BTN to acknowledge.',
+          life: 5000,
+        });
+      }
     }
 
     if (msg.alarm) {
@@ -145,7 +188,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
     if (msg.readings) {
       for (const r of msg.readings) {
         if (r.sensor_id && this.sensors[r.sensor_id]) {
-          this.sensors[r.sensor_id].value = r.value;
+          // Parse JSON values for complex sensor types
+          let value = r.value;
+          if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+            try {
+              value = JSON.parse(value);
+            } catch (e) {
+              // Keep as string if parsing fails
+            }
+          }
+          this.sensors[r.sensor_id].value = value;
           this.sensors[r.sensor_id].timestamp = r.timestamp;
         }
       }
@@ -187,6 +239,33 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.api.controlBuzzer(action).subscribe();
   }
 
+  // Timer controls (Feature 8)
+  timerSetTime(): void {
+    const seconds = this.timerInputMinutes * 60;
+    this.api.timerSetTime(seconds).subscribe();
+  }
+
+  timerStart(): void {
+    this.api.timerStart().subscribe();
+  }
+
+  timerStop(): void {
+    this.api.timerStop().subscribe();
+  }
+
+  timerAddSeconds(): void {
+    this.api.timerAddSeconds(this.timerBtnSeconds).subscribe();
+  }
+
+  timerPressBTN(): void {
+    // Simulates pressing the physical BTN - stops blinking when timer is done
+    this.api.timerAddSeconds(0).subscribe();
+  }
+
+  timerUpdateBtnSeconds(): void {
+    this.api.timerSetBtnSeconds(this.timerBtnSeconds).subscribe();
+  }
+
   getAlarmSeverity(): "success" | "info" | "warning" | "danger" {
     switch (this.alarmState) {
       case 'ALARM': return 'danger';
@@ -204,6 +283,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
       case 'buzzer': return 'pi pi-volume-up';
       case 'pir': return 'pi pi-eye';
       case 'membrane_switch': return 'pi pi-th-large';
+      case 'gyroscope': return 'pi pi-compass';
+      case 'dht': return 'pi pi-cloud';
+      case 'lcd': return 'pi pi-desktop';
+      case 'segment_display': return 'pi pi-clock';
       default: return 'pi pi-cog';
     }
   }
@@ -216,6 +299,18 @@ export class DashboardComponent implements OnInit, OnDestroy {
       case 'pir': return sensor.value === 1 ? 'MOTION' : 'No Motion';
       case 'ultrasonic': return `${sensor.value} cm`;
       case 'membrane_switch': return sensor.value ? `Key: ${sensor.value}` : 'Idle';
+      case 'gyroscope':
+        const gsg = typeof sensor.value === 'object' ? sensor.value : {};
+        return gsg.significant ? 'MOVEMENT!' : 'Stable';
+      case 'dht':
+        const dht = typeof sensor.value === 'object' ? sensor.value : {};
+        return `${dht.temperature || 0}°C / ${dht.humidity || 0}%`;
+      case 'lcd':
+        const lcd = typeof sensor.value === 'object' ? sensor.value : {};
+        return lcd.line1 || 'Idle';
+      case 'segment_display':
+        const sd = typeof sensor.value === 'object' ? sensor.value : {};
+        return sd.display || '00:00';
       default: return String(sensor.value);
     }
   }
@@ -226,6 +321,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
       case 'button': return sensor.value === 1 ? 'warning' : 'success';
       case 'led': return sensor.value === 1 ? 'warning' : 'info';
       case 'buzzer': return sensor.value === 1 ? 'danger' : 'info';
+      case 'gyroscope':
+        const gsg = typeof sensor.value === 'object' ? sensor.value : {};
+        return gsg.significant ? 'danger' : 'success';
+      case 'dht': return 'info';
+      case 'lcd': return 'info';
+      case 'segment_display':
+        const sd = typeof sensor.value === 'object' ? sensor.value : {};
+        return sd.blinking ? 'warning' : 'info';
       default: return 'info';
     }
   }

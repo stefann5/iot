@@ -18,11 +18,18 @@
             "alarm_event": "pi1/alarm/event",
             "alarm_reason": "pi1/alarm/reason",
             "people_count": "pi1/people/count",
-            "people_event": "pi1/people/event"
+            "people_event": "pi1/people/event",
+            "gyroscope": "pi1/sensors/gyroscope",
+            "dht": "pi1/sensors/dht",
+            "lcd": "pi1/actuators/lcd",
+            "segment_display": "pi1/actuators/segment_display",
+            "timer_state": "pi1/timer/state",
+            "timer_event": "pi1/timer/event"
         },
         "batch_interval": 5
     },
     "alarm_pin": "1234",
+    "timer_btn_seconds": 10,
     "DS1": {
         "simulated": true,
         "pin": 17,
@@ -103,5 +110,51 @@
         "pin": 4,
         "name": "Living Room PIR Sensor",
         "type": "pir"
+    },
+    "GSG": {
+        "simulated": true,
+        "bus": 1,
+        "address": "0x68",
+        "name": "Gyroscope (Patron Saint Icon)",
+        "type": "gyroscope",
+        "threshold": 5.0
+    },
+    "DHT1": {
+        "simulated": true,
+        "pin": 2,
+        "name": "Bedroom DHT",
+        "type": "dht"
+    },
+    "DHT2": {
+        "simulated": true,
+        "pin": 3,
+        "name": "Master Bedroom DHT",
+        "type": "dht"
+    },
+    "DHT3": {
+        "simulated": true,
+        "pin": 7,
+        "name": "Kitchen DHT",
+        "type": "dht"
+    },
+    "LCD": {
+        "simulated": true,
+        "bus": 1,
+        "address": "0x27",
+        "name": "Living Room LCD Display",
+        "type": "lcd"
+    },
+    "4SD": {
+        "simulated": true,
+        "segment_pins": [11, 9, 10, 24, 25, 8, 7],
+        "digit_pins": [12, 16, 20, 21],
+        "name": "Kitchen 4-Digit Display",
+        "type": "segment_display"
+    },
+    "BTN": {
+        "simulated": true,
+        "pin": 26,
+        "name": "Kitchen Button",
+        "type": "button"
     }
 }

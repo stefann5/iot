@@ -69,6 +69,42 @@ FEATURE 5: Room PIR intruder detection when facility is empty
 - Web dashboard shows warning when people count = 0.
 - Implemented in: main.py -> on_room_pir_motion(), RPIR1-3 sensor loops
 
+FEATURE 6: GSG Gyroscope Alarm (Patron Saint Icon Protection)
+------------------------------------------------------------------------
+- GSG gyroscope sensor mounted on patron saint icon monitors for movement.
+- When significant movement is detected (theft/tampering attempt):
+  - ALARM triggers immediately from ANY state.
+  - Alarm reason: "GSG gyroscope - significant movement on patron saint icon"
+- Gyroscope outputs X, Y, Z acceleration values.
+- Threshold for significant movement configurable in settings.json.
+- Implemented in: main.py -> GSG sensor loop, on_gyroscope() callback
+
+FEATURE 7: DHT1-3 Temperature/Humidity on LCD
+------------------------------------------------------------------------
+- Three DHT sensors monitor temperature and humidity:
+  - DHT1: Bedroom
+  - DHT2: Master Bedroom
+  - DHT3: Kitchen
+- LCD display in living room alternates between DHT readings every 5 seconds.
+- Display format: Line 1: "Room: XXC", Line 2: "Humidity: XX%"
+- All readings published via MQTT and visible on web dashboard.
+- Implemented in: main.py -> DHT sensor loops, lcd_rotation_loop()
+
+FEATURE 8: Kitchen Timer (4SD, BTN, Web Control)
+------------------------------------------------------------------------
+- 4SD (4-digit 7-segment display) shows countdown timer in MM:SS format.
+- Kitchen BTN adds N seconds to timer (default: 10s, configurable via web).
+- Timer controllable via web app:
+  - Set timer duration (minutes)
+  - Start/Stop timer
+  - Add seconds
+  - Configure BTN add amount
+- When timer reaches 00:00:
+  - 4SD display blinks 00:00
+  - Pressing BTN stops blinking and resets display
+- Timer state published via MQTT for real-time web updates.
+- Implemented in: main.py -> KitchenTimer class, 4SD/BTN sensor loops
+
 ALARM SYSTEM:
 ------------------------------------------------------------------------
 - States: DISARMED -> ARMING (10s delay) -> ARMED -> ALARM
@@ -98,6 +134,15 @@ Room PIR Sensors (Feature 5):
   RPIR2- Master Bedroom PIR Sensor      - Intruder detection
   RPIR3- Living Room PIR Sensor         - Intruder detection
 
+Feature 6-8 Sensors/Actuators:
+  GSG  - Gyroscope (Patron Saint Icon)  - Movement/theft detection
+  DHT1 - Bedroom DHT                    - Temperature/humidity
+  DHT2 - Master Bedroom DHT             - Temperature/humidity
+  DHT3 - Kitchen DHT                    - Temperature/humidity
+  LCD  - Living Room LCD Display        - Shows rotating DHT readings
+  4SD  - Kitchen 4-Digit Display        - Timer countdown MM:SS
+  BTN  - Kitchen Button                 - Adds time to timer
+
 All sensors configurable as simulated or real hardware via settings.json.
 
 ==========================================================================
@@ -113,12 +158,16 @@ Frontend: Angular 17 + PrimeNG
   - Toast notifications for alarm events
   - Alarm reason display
   - ARMING state with blue pulse animation
+  - Gyroscope (GSG) status panel with X/Y/Z readings (Feature 6)
+  - DHT temperature/humidity readings for all 3 sensors (Feature 7)
+  - Kitchen timer control panel with start/stop/set (Feature 8)
 
 Backend: FastAPI
-  - REST API: /api/status, /api/alarm/*, /api/people-count, /api/led, /api/buzzer
+  - REST API: /api/status, /api/alarm/*, /api/people-count, /api/led, /api/buzzer, /api/timer
   - WebSocket: /ws for real-time updates
   - MQTT subscriber -> InfluxDB writer
   - All sensor states tracked in memory + persisted to InfluxDB
+  - Timer state management and MQTT commands
 
 ==========================================================================
 MQTT TOPICS
@@ -135,7 +184,13 @@ MQTT TOPICS
   pi1/alarm/reason             - Alarm trigger reason
   pi1/people/count             - Current people count
   pi1/people/event             - Direction (ENTERING/EXITING)
-  pi1/commands/#               - Web app commands (alarm, led, buzzer)
+  pi1/commands/#               - Web app commands (alarm, led, buzzer, timer)
+  pi1/sensors/gyroscope        - GSG gyroscope X/Y/Z readings (Feature 6)
+  pi1/sensors/dht              - DHT1-3 temperature/humidity (Feature 7)
+  pi1/actuators/lcd            - LCD display content (Feature 7)
+  pi1/actuators/segment_display - 4SD display value (Feature 8)
+  pi1/timer/state              - Timer state (remaining, running, blinking)
+  pi1/timer/event              - Timer events (finished, blink_stopped)
 
 ==========================================================================
 HOW TO RUN
@@ -153,6 +208,45 @@ FILES MODIFIED FOR FEATURES 3-5
 
   main.py           - AlarmSystem: ARMING state, door open timers, grace timers,
                       trigger_alarm() from any state, callbacks.
+                      PeopleCounter: multi-sensor distance buffers.
+                      New sensors: DS2, DUS2, DPIR2, RPIR1-3 initialization.
+  settings.json     - Added DS2, DUS2, DPIR2, RPIR1-3 configurations.
+  server/app.py     - Added new sensors to state tracking, ARMING state support,
+                      alarm reason handling.
+  frontend/src/app/components/dashboard/dashboard.component.ts
+                    - ARMING state handling, alarm reason tracking, notifications.
+  frontend/src/app/components/dashboard/dashboard.component.html
+                    - Alarm reason display, intruder detection warning, ARMING tag.
+  frontend/src/app/components/dashboard/dashboard.component.scss
+                    - ARMING blue pulse animation.
+
+==========================================================================
+FILES MODIFIED FOR FEATURES 6-8
+==========================================================================
+
+  simulators/gyroscope.py    - GSG gyroscope simulator with movement simulation.
+  simulators/dht.py          - DHT temperature/humidity simulator.
+  simulators/lcd.py          - LCD display simulator.
+  simulators/segment_display.py - 4SD 7-segment display simulator.
+  sensors/gyroscope.py       - Real gyroscope hardware driver.
+  sensors/dht.py             - Real DHT hardware driver.
+  sensors/lcd.py             - Real LCD I2C hardware driver.
+  sensors/segment_display.py - Real 7-segment display driver.
+  settings.json              - Added GSG, DHT1-3, LCD, 4SD, BTN configurations
+                               and MQTT topics.
+  main.py                    - KitchenTimer class, Feature 6-8 sensor loops,
+                               LCD rotation thread, timer MQTT commands.
+  server/app.py              - Added GSG, DHT, LCD, 4SD, BTN, TIMER states,
+                               timer REST endpoints, MQTT topic handling.
+  frontend/src/app/services/api.service.ts
+                             - Timer API endpoints.
+  frontend/src/app/components/dashboard/dashboard.component.ts
+                             - Timer state, gyroscope display, DHT display helpers,
+                               timer control methods.
+  frontend/src/app/components/dashboard/dashboard.component.html
+                             - Kitchen timer panel, GSG status panel, DHT readings.
+  frontend/src/app/components/dashboard/dashboard.component.scss
+                             - Timer blink animation.
                       PeopleCounter: multi-sensor distance buffers.
                       New sensors: DS2, DUS2, DPIR2, RPIR1-3 initialization.
   settings.json     - Added DS2, DUS2, DPIR2, RPIR1-3 configurations.
