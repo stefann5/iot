@@ -13,7 +13,7 @@ ARCHITECTURE:
                                                    Angular Frontend  <--iframe--> Grafana
 
 ==========================================================================
-IMPLEMENTED FEATURES (1-5)
+IMPLEMENTED FEATURES (1-10)
 ==========================================================================
 
 FEATURE 1: DPIR1 motion -> DL on for 10 seconds
@@ -105,6 +105,33 @@ FEATURE 8: Kitchen Timer (4SD, BTN, Web Control)
 - Timer state published via MQTT for real-time web updates.
 - Implemented in: main.py -> KitchenTimer class, 4SD/BTN sensor loops
 
+FEATURE 9: BRGB RGB LED Control via IR Remote and Web App
+------------------------------------------------------------------------
+- BRGB (Bedroom RGB LED) controllable via:
+  - IR remote control (buttons 1-9 = colors, POWER = toggle, VOL = brightness)
+  - Web application (color picker, preset buttons, brightness slider)
+  - Console commands (rgb on/off, rgb COLOR, rgb R G B)
+- IR receiver (PI3) decodes NEC protocol button presses.
+- Supported colors: red, green, blue, yellow, cyan, magenta, white, orange, purple.
+- Brightness adjustable 0-100% via web slider or IR VOL_UP/VOL_DOWN.
+- Custom RGB values settable via web color picker.
+- All state changes published via MQTT and visible on web dashboard.
+- Implemented in: main.py -> BRGB + IR sensor initialization, on_ir_received(),
+  MQTT command handler for pi1/commands/brgb
+
+FEATURE 10: Webcam Video Display on Web Application
+------------------------------------------------------------------------
+- WEBC (Door Web Camera) streams live video to the web dashboard.
+- Real hardware: OpenCV captures JPEG frames from USB webcam.
+- Simulator: Generates BMP test pattern frames (color-cycling checkerboard).
+- Server provides:
+  - /api/webcam/stream - MJPEG stream endpoint (multipart/x-mixed-replace)
+  - /api/webcam/frame - Single frame endpoint
+  - /api/webcam/status - Camera status
+- Web dashboard displays live feed in an img tag pointing to MJPEG stream.
+- Implemented in: main.py -> webcam initialization,
+  server/app.py -> webcam_stream(), get_webcam_frame()
+
 ALARM SYSTEM:
 ------------------------------------------------------------------------
 - States: DISARMED -> ARMING (10s delay) -> ARMED -> ALARM
@@ -143,6 +170,11 @@ Feature 6-8 Sensors/Actuators:
   4SD  - Kitchen 4-Digit Display        - Timer countdown MM:SS
   BTN  - Kitchen Button                 - Adds time to timer
 
+Feature 9-10 Sensors/Actuators:
+  IR   - Bedroom IR Receiver            - Receives IR remote control commands
+  BRGB - Bedroom RGB LED                - RGB LED bulb with color/brightness
+  WEBC - Door Web Camera                - Video feed from door camera
+
 All sensors configurable as simulated or real hardware via settings.json.
 
 ==========================================================================
@@ -161,9 +193,14 @@ Frontend: Angular 17 + PrimeNG
   - Gyroscope (GSG) status panel with X/Y/Z readings (Feature 6)
   - DHT temperature/humidity readings for all 3 sensors (Feature 7)
   - Kitchen timer control panel with start/stop/set (Feature 8)
+  - BRGB RGB light control: color picker, presets, brightness slider (Feature 9)
+  - IR remote button activity display (Feature 9)
+  - Live webcam video feed from MJPEG stream (Feature 10)
 
 Backend: FastAPI
   - REST API: /api/status, /api/alarm/*, /api/people-count, /api/led, /api/buzzer, /api/timer
+  - REST API: /api/brgb (GET/POST) - BRGB state and control (Feature 9)
+  - REST API: /api/webcam/stream, /api/webcam/frame, /api/webcam/status (Feature 10)
   - WebSocket: /ws for real-time updates
   - MQTT subscriber -> InfluxDB writer
   - All sensor states tracked in memory + persisted to InfluxDB
@@ -191,6 +228,10 @@ MQTT TOPICS
   pi1/actuators/segment_display - 4SD display value (Feature 8)
   pi1/timer/state              - Timer state (remaining, running, blinking)
   pi1/timer/event              - Timer events (finished, blink_stopped)
+  pi1/sensors/ir_receiver      - IR remote button presses (Feature 9)
+  pi1/actuators/rgb_led        - BRGB RGB LED state (Feature 9)
+  pi1/commands/brgb            - BRGB web commands (on/off/color/brightness)
+  pi1/sensors/webcam           - Webcam status (Feature 10)
 
 ==========================================================================
 HOW TO RUN
@@ -247,14 +288,32 @@ FILES MODIFIED FOR FEATURES 6-8
                              - Kitchen timer panel, GSG status panel, DHT readings.
   frontend/src/app/components/dashboard/dashboard.component.scss
                              - Timer blink animation.
-                      PeopleCounter: multi-sensor distance buffers.
-                      New sensors: DS2, DUS2, DPIR2, RPIR1-3 initialization.
-  settings.json     - Added DS2, DUS2, DPIR2, RPIR1-3 configurations.
-  server/app.py     - Added new sensors to state tracking, ARMING state support,
-                      alarm reason handling.
+
+==========================================================================
+FILES MODIFIED/CREATED FOR FEATURES 9-10
+==========================================================================
+
+  simulators/ir_receiver.py    - IR remote control simulator with NEC codes.
+  simulators/rgb_led.py        - BRGB RGB LED simulator with color/brightness.
+  simulators/webcam.py         - Webcam simulator generating BMP test patterns.
+  sensors/ir_receiver.py       - Real IR receiver GPIO hardware driver.
+  sensors/rgb_led.py           - Real RGB LED PWM hardware driver.
+  sensors/webcam.py            - Real webcam OpenCV capture driver.
+  settings.json                - Added IR, BRGB, WEBC configurations and MQTT topics.
+  main.py                      - Feature 9: IR receiver + BRGB initialization, IR->RGB
+                                 action mapping, BRGB MQTT command handler.
+                                 Feature 10: Webcam initialization and status publishing.
+                                 Console: rgb on/off/COLOR commands.
+  server/app.py                - Added IR, BRGB, WEBC states; BRGBRequest model;
+                                 /api/brgb endpoints; /api/webcam/stream MJPEG endpoint;
+                                 /api/webcam/frame and /api/webcam/status endpoints;
+                                 brgb_state tracking in WebSocket broadcasts.
+  frontend/src/app/services/api.service.ts
+                               - BRGB API endpoints, webcam URL helpers.
   frontend/src/app/components/dashboard/dashboard.component.ts
-                    - ARMING state handling, alarm reason tracking, notifications.
+                               - BRGB state tracking, IR button tracking, webcam stream URL,
+                                 color picker handler, brightness controls, BRGB/IR/webcam
+                                 display helpers.
   frontend/src/app/components/dashboard/dashboard.component.html
-                    - Alarm reason display, intruder detection warning, ARMING tag.
-  frontend/src/app/components/dashboard/dashboard.component.scss
-                    - ARMING blue pulse animation.
+                               - BRGB control panel (color picker, presets, brightness
+                                 slider, IR remote info), webcam live feed panel.

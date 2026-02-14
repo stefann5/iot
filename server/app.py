@@ -1,11 +1,15 @@
 import json
 import asyncio
 import threading
+import time
+import struct
 from datetime import datetime
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
 import paho.mqtt.client as mqtt
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -64,11 +68,19 @@ sensor_states = {
     "LCD": {"value": {"line1": "", "line2": ""}, "name": "Living Room LCD", "type": "lcd", "timestamp": None},
     "4SD": {"value": {"display": "00:00", "blinking": False}, "name": "Kitchen 4-Digit Display", "type": "segment_display", "timestamp": None},
     "BTN": {"value": 0, "name": "Kitchen Button", "type": "button", "timestamp": None},
+    # Feature 9-10 sensors
+    "IR": {"value": {"button": "", "action": ""}, "name": "Bedroom IR Receiver", "type": "ir_receiver", "timestamp": None},
+    "BRGB": {"value": {"on": False, "r": 255, "g": 255, "b": 255, "brightness": 100}, "name": "Bedroom RGB LED", "type": "rgb_led", "timestamp": None},
+    "WEBC": {"value": {"active": False}, "name": "Door Web Camera", "type": "webcam", "timestamp": None},
 }
 
 alarm_state = {"state": "DISARMED", "reason": "", "timestamp": None}
 people_state = {"count": 0, "last_direction": None, "timestamp": None}
 timer_state = {"remaining": 0, "display": "00:00", "running": False, "blinking": False, "btn_seconds": 10, "timestamp": None}
+brgb_state = {"on": False, "r": 255, "g": 255, "b": 255, "brightness": 100, "timestamp": None}
+
+# Webcam frame storage (updated via MQTT or direct access)
+webcam_frame = {"data": None, "timestamp": None, "simulated": True}
 
 # ==================== InfluxDB ====================
 influx_client = None
@@ -229,6 +241,40 @@ def on_message(client, userdata, msg):
                 except:
                     pass
 
+            # Handle IR receiver data (Feature 9)
+            if measurement_type == "ir_receiver" and sensor_id == "IR":
+                try:
+                    ir_data = json.loads(value) if isinstance(value, str) else value
+                    sensor_states["IR"]["value"] = ir_data
+                    sensor_states["IR"]["timestamp"] = timestamp
+                except:
+                    pass
+
+            # Handle BRGB LED data (Feature 9)
+            if measurement_type == "rgb_led" and sensor_id == "BRGB":
+                try:
+                    rgb_data = json.loads(value) if isinstance(value, str) else value
+                    sensor_states["BRGB"]["value"] = rgb_data
+                    sensor_states["BRGB"]["timestamp"] = timestamp
+                    brgb_state["on"] = rgb_data.get("on", False)
+                    brgb_state["r"] = rgb_data.get("r", 255)
+                    brgb_state["g"] = rgb_data.get("g", 255)
+                    brgb_state["b"] = rgb_data.get("b", 255)
+                    brgb_state["brightness"] = rgb_data.get("brightness", 100)
+                    brgb_state["timestamp"] = timestamp
+                except:
+                    pass
+
+            # Handle webcam status (Feature 10)
+            if measurement_type == "webcam" and sensor_id == "WEBC":
+                try:
+                    webc_data = json.loads(value) if isinstance(value, str) else value
+                    sensor_states["WEBC"]["value"] = webc_data
+                    sensor_states["WEBC"]["timestamp"] = timestamp
+                    webcam_frame["simulated"] = webc_data.get("simulated", True)
+                except:
+                    pass
+
             # Write to InfluxDB
             tags = {
                 "pi_id": pi_id,
@@ -252,6 +298,7 @@ def on_message(client, userdata, msg):
             "alarm": alarm_state,
             "people": people_state,
             "timer": timer_state,
+            "brgb": brgb_state,
         }
         if event_loop:
             asyncio.run_coroutine_threadsafe(manager.broadcast(ws_data), event_loop)
@@ -315,6 +362,15 @@ class TimerRequest(BaseModel):
     seconds: int = 0
 
 
+class BRGBRequest(BaseModel):
+    action: str
+    r: int = 255
+    g: int = 255
+    b: int = 255
+    color: str = ""
+    value: int = 100
+
+
 # ==================== Routes ====================
 @app.get("/api/status")
 async def get_status():
@@ -323,6 +379,7 @@ async def get_status():
         "alarm": alarm_state,
         "people": people_state,
         "timer": timer_state,
+        "brgb": brgb_state,
     }
 
 
@@ -375,6 +432,102 @@ async def control_timer(req: TimerRequest):
     return {"status": "ok", "action": req.action}
 
 
+# ==================== Feature 9: BRGB Control ====================
+@app.get("/api/brgb")
+async def get_brgb_status():
+    return brgb_state
+
+
+@app.post("/api/brgb")
+async def control_brgb(req: BRGBRequest):
+    payload = {"action": req.action}
+    if req.action == "set_color":
+        payload["r"] = req.r
+        payload["g"] = req.g
+        payload["b"] = req.b
+    elif req.action == "set_color_name":
+        payload["color"] = req.color
+    elif req.action == "brightness":
+        payload["value"] = req.value
+    mqtt_client.publish("pi1/commands/brgb", json.dumps(payload))
+    return {"status": "ok", "action": req.action}
+
+
+# ==================== Feature 10: Webcam Stream ====================
+def _generate_simulated_frame():
+    """Generate a simple BMP test pattern for simulated webcam."""
+    import random
+    w, h = 320, 240
+    row_size = (w * 3 + 3) & ~3
+    pixel_data_size = row_size * h
+    file_size = 54 + pixel_data_size
+
+    # Cycle colors based on time
+    t = int(time.time()) % 5
+    colors = [(0, 100, 200), (0, 180, 100), (200, 100, 0), (150, 0, 150), (200, 200, 0)]
+    r, g, b = colors[t]
+
+    header = struct.pack('<2sIHHI', b'BM', file_size, 0, 0, 54)
+    dib = struct.pack('<IiiHHIIiiII', 40, w, h, 1, 24, 0, pixel_data_size, 2835, 2835, 0, 0)
+
+    rows = []
+    for y in range(h):
+        row = bytearray()
+        for x in range(w):
+            if (x // 40 + y // 40) % 2 == 0:
+                row.extend([b, g, r])
+            else:
+                row.extend([b // 2, g // 2, r // 2])
+        while len(row) % 4 != 0:
+            row.append(0)
+        rows.append(bytes(row))
+
+    return header + dib + b''.join(rows)
+
+
+@app.get("/api/webcam/frame")
+async def get_webcam_frame():
+    """Get a single webcam frame (BMP for simulated, JPEG for real)."""
+    frame_data = webcam_frame.get("data")
+    if frame_data:
+        content_type = "image/jpeg"
+        return Response(content=frame_data, media_type=content_type)
+
+    # Fallback: generate simulated frame
+    bmp_data = _generate_simulated_frame()
+    return Response(content=bmp_data, media_type="image/bmp")
+
+
+@app.get("/api/webcam/stream")
+async def webcam_stream():
+    """MJPEG stream endpoint for continuous webcam video."""
+    async def generate():
+        while True:
+            frame_data = webcam_frame.get("data")
+            if frame_data:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
+            else:
+                # Simulated frame
+                bmp_data = _generate_simulated_frame()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/bmp\r\n\r\n' + bmp_data + b'\r\n')
+            await asyncio.sleep(0.1)  # ~10 FPS
+
+    return StreamingResponse(
+        generate(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
+
+@app.get("/api/webcam/status")
+async def get_webcam_status():
+    return {
+        "active": sensor_states["WEBC"]["value"].get("active", False) if isinstance(sensor_states["WEBC"]["value"], dict) else False,
+        "simulated": webcam_frame.get("simulated", True),
+    }
+
+
 @app.get("/api/alarm-events")
 async def get_alarm_events():
     if query_api is None:
@@ -424,6 +577,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "alarm": alarm_state,
             "people": people_state,
             "timer": timer_state,
+            "brgb": brgb_state,
         })
     except Exception:
         pass

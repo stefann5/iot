@@ -21,6 +21,8 @@ import { BadgeModule } from 'primeng/badge';
 import { PasswordModule } from 'primeng/password';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { ProgressBarModule } from 'primeng/progressbar';
+import { SliderModule } from 'primeng/slider';
+import { ColorPickerModule } from 'primeng/colorpicker';
 
 interface SensorState {
   value: any;
@@ -37,7 +39,7 @@ interface SensorState {
     CardModule, ButtonModule, TagModule, DialogModule,
     InputTextModule, PanelModule, KnobModule, ToolbarModule,
     DividerModule, BadgeModule, PasswordModule, SafeUrlPipe,
-    InputNumberModule, ProgressBarModule,
+    InputNumberModule, ProgressBarModule, SliderModule, ColorPickerModule,
   ],
   templateUrl: './dashboard.component.html',
   styleUrls: ['./dashboard.component.scss'],
@@ -61,6 +63,20 @@ export class DashboardComponent implements OnInit, OnDestroy {
   timerInputMinutes = 5;
   timerBtnSeconds = 10;
 
+  // BRGB state (Feature 9)
+  brgbOn = false;
+  brgbR = 255;
+  brgbG = 255;
+  brgbB = 255;
+  brgbBrightness = 100;
+  brgbColorHex = '#ffffff';
+  lastIrButton = '';
+  lastIrAction = '';
+
+  // Webcam (Feature 10)
+  webcamStreamUrl = '';
+  webcamActive = false;
+
   private wsSub: Subscription | null = null;
   private pollInterval: any;
 
@@ -72,6 +88,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.grafanaUrl = `${environment.grafanaUrl}/d/pi1-sensors/pi1-door-control-system-sensors?orgId=1&kiosk&refresh=5s`;
+    this.webcamStreamUrl = this.api.getWebcamStreamUrl();
 
     this.ws.connect();
     this.wsSub = this.ws.messages$.subscribe((msg) => this.handleWsMessage(msg));
@@ -101,6 +118,19 @@ export class DashboardComponent implements OnInit, OnDestroy {
           this.timerBlinking = data.timer.blinking || false;
           this.timerBtnSeconds = data.timer.btn_seconds || 10;
         }
+        // BRGB state
+        if (data.brgb) {
+          this.brgbOn = data.brgb.on || false;
+          this.brgbR = data.brgb.r ?? 255;
+          this.brgbG = data.brgb.g ?? 255;
+          this.brgbB = data.brgb.b ?? 255;
+          this.brgbBrightness = data.brgb.brightness ?? 100;
+          this.updateBrgbHex();
+        }
+        // Webcam
+        if (data.sensors?.WEBC?.value?.active) {
+          this.webcamActive = true;
+        }
         this.wsConnected = true;
       },
       error: () => { this.wsConnected = false; },
@@ -121,6 +151,15 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.timerBlinking = msg.timer.blinking || false;
         this.timerBtnSeconds = msg.timer.btn_seconds || 10;
       }
+      // BRGB initial state
+      if (msg.brgb) {
+        this.brgbOn = msg.brgb.on || false;
+        this.brgbR = msg.brgb.r ?? 255;
+        this.brgbG = msg.brgb.g ?? 255;
+        this.brgbB = msg.brgb.b ?? 255;
+        this.brgbBrightness = msg.brgb.brightness ?? 100;
+        this.updateBrgbHex();
+      }
       return;
     }
 
@@ -138,6 +177,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
           life: 5000,
         });
       }
+    }
+
+    // Handle BRGB updates
+    if (msg.brgb) {
+      this.brgbOn = msg.brgb.on ?? this.brgbOn;
+      this.brgbR = msg.brgb.r ?? this.brgbR;
+      this.brgbG = msg.brgb.g ?? this.brgbG;
+      this.brgbB = msg.brgb.b ?? this.brgbB;
+      this.brgbBrightness = msg.brgb.brightness ?? this.brgbBrightness;
+      this.updateBrgbHex();
     }
 
     if (msg.alarm) {
@@ -199,6 +248,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
           }
           this.sensors[r.sensor_id].value = value;
           this.sensors[r.sensor_id].timestamp = r.timestamp;
+
+          // Track last IR button press
+          if (r.sensor_id === 'IR' && typeof value === 'object') {
+            this.lastIrButton = value.button || '';
+            this.lastIrAction = value.action || '';
+          }
         }
       }
     }
@@ -258,12 +313,63 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   timerPressBTN(): void {
-    // Simulates pressing the physical BTN - stops blinking when timer is done
     this.api.timerAddSeconds(0).subscribe();
   }
 
   timerUpdateBtnSeconds(): void {
     this.api.timerSetBtnSeconds(this.timerBtnSeconds).subscribe();
+  }
+
+  // BRGB controls (Feature 9)
+  brgbToggle(): void {
+    this.api.brgbToggle().subscribe();
+  }
+
+  brgbTurnOn(): void {
+    this.api.brgbOn().subscribe();
+  }
+
+  brgbTurnOff(): void {
+    this.api.brgbOff().subscribe();
+  }
+
+  brgbSetColor(name: string): void {
+    this.api.brgbSetColorName(name).subscribe();
+  }
+
+  brgbSetCustomColor(): void {
+    this.api.brgbSetColor(this.brgbR, this.brgbG, this.brgbB).subscribe();
+  }
+
+  brgbUpdateBrightness(): void {
+    this.api.brgbSetBrightness(this.brgbBrightness).subscribe();
+  }
+
+  brgbOnColorPickerChange(event: any): void {
+    // PrimeNG color picker returns hex string
+    const hex = typeof event === 'string' ? event : (event?.value || '');
+    if (hex) {
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      this.brgbR = r;
+      this.brgbG = g;
+      this.brgbB = b;
+      this.api.brgbSetColor(r, g, b).subscribe();
+    }
+  }
+
+  private updateBrgbHex(): void {
+    const toHex = (n: number) => n.toString(16).padStart(2, '0');
+    this.brgbColorHex = `#${toHex(this.brgbR)}${toHex(this.brgbG)}${toHex(this.brgbB)}`;
+  }
+
+  getBrgbColorStyle(): string {
+    const factor = this.brgbBrightness / 100;
+    const r = Math.round(this.brgbR * factor);
+    const g = Math.round(this.brgbG * factor);
+    const b = Math.round(this.brgbB * factor);
+    return `rgb(${r}, ${g}, ${b})`;
   }
 
   getAlarmSeverity(): "success" | "info" | "warning" | "danger" {
@@ -287,6 +393,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
       case 'dht': return 'pi pi-cloud';
       case 'lcd': return 'pi pi-desktop';
       case 'segment_display': return 'pi pi-clock';
+      case 'ir_receiver': return 'pi pi-wifi';
+      case 'rgb_led': return 'pi pi-palette';
+      case 'webcam': return 'pi pi-video';
       default: return 'pi pi-cog';
     }
   }
@@ -304,13 +413,22 @@ export class DashboardComponent implements OnInit, OnDestroy {
         return gsg.significant ? 'MOVEMENT!' : 'Stable';
       case 'dht':
         const dht = typeof sensor.value === 'object' ? sensor.value : {};
-        return `${dht.temperature || 0}°C / ${dht.humidity || 0}%`;
+        return `${dht.temperature || 0}\u00B0C / ${dht.humidity || 0}%`;
       case 'lcd':
         const lcd = typeof sensor.value === 'object' ? sensor.value : {};
         return lcd.line1 || 'Idle';
       case 'segment_display':
         const sd = typeof sensor.value === 'object' ? sensor.value : {};
         return sd.display || '00:00';
+      case 'ir_receiver':
+        const ir = typeof sensor.value === 'object' ? sensor.value : {};
+        return ir.button ? `${ir.button} (${ir.action})` : 'Idle';
+      case 'rgb_led':
+        const rgb = typeof sensor.value === 'object' ? sensor.value : {};
+        return rgb.on ? `ON RGB(${rgb.r},${rgb.g},${rgb.b})` : 'OFF';
+      case 'webcam':
+        const wc = typeof sensor.value === 'object' ? sensor.value : {};
+        return wc.active ? 'Active' : 'Inactive';
       default: return String(sensor.value);
     }
   }
@@ -329,6 +447,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
       case 'segment_display':
         const sd = typeof sensor.value === 'object' ? sensor.value : {};
         return sd.blinking ? 'warning' : 'info';
+      case 'ir_receiver': return 'info';
+      case 'rgb_led':
+        const rgb = typeof sensor.value === 'object' ? sensor.value : {};
+        return rgb.on ? 'warning' : 'info';
+      case 'webcam':
+        const wc = typeof sensor.value === 'object' ? sensor.value : {};
+        return wc.active ? 'success' : 'info';
       default: return 'info';
     }
   }

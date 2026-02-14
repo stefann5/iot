@@ -994,6 +994,95 @@ def main():
     kitchen_timer._on_finished_callback = on_timer_finished
     kitchen_timer._on_blink_stopped_callback = on_blink_stopped
 
+    # ==================== FEATURE 9: IR Receiver + BRGB LED ====================
+    brgb = None
+    brgb_settings = settings.get('BRGB', {})
+    if brgb_settings:
+        brgb_simulated = brgb_settings.get('simulated', True)
+
+        def on_brgb_change(state):
+            publish_sensor_data("BRGB", "rgb_led",
+                              json.dumps(state),
+                              brgb_simulated, "rgb")
+
+        if brgb_simulated:
+            from simulators.rgb_led import RGBLEDSimulator
+            brgb = RGBLEDSimulator(callback=on_brgb_change)
+            print("[BRGB] RGB LED simulator initialized")
+        else:
+            from sensors.rgb_led import RGBLED
+            brgb = RGBLED(brgb_settings['r_pin'], brgb_settings['g_pin'],
+                         brgb_settings['b_pin'], callback=on_brgb_change)
+            print("[BRGB] RGB LED initialized")
+
+    ir_settings = settings.get('IR', {})
+    if ir_settings:
+        ir_simulated = ir_settings.get('simulated', True)
+
+        def on_ir_received(button, action):
+            publish_sensor_data("IR", "ir_receiver",
+                              json.dumps({"button": button, "action": action}),
+                              ir_simulated, "button")
+            print(f"[IR] Remote button: {button} -> action: {action}")
+
+            # Apply action to BRGB
+            if brgb:
+                if action == "toggle":
+                    brgb.toggle()
+                elif action == "off":
+                    brgb.turn_off()
+                elif action == "brightness_up":
+                    brgb.brightness_up()
+                elif action == "brightness_down":
+                    brgb.brightness_down()
+                elif action in ["red", "green", "blue", "yellow", "cyan",
+                               "magenta", "white", "orange", "purple"]:
+                    brgb.set_color_name(action)
+
+        if ir_simulated:
+            from simulators.ir_receiver import run_ir_simulator
+            t = threading.Thread(target=run_ir_simulator,
+                               args=(1, on_ir_received, stop_event), daemon=True)
+            t.start()
+            threads.append(t)
+            print("[IR] IR Receiver simulator started")
+        else:
+            from sensors.ir_receiver import run_ir_loop, IRReceiver
+            ir_sensor = IRReceiver(ir_settings['pin'])
+            t = threading.Thread(target=run_ir_loop,
+                               args=(ir_sensor, 0.1, on_ir_received, stop_event), daemon=True)
+            t.start()
+            threads.append(t)
+            print("[IR] IR Receiver started")
+
+    # ==================== FEATURE 10: Web Camera ====================
+    webcam = None
+    webc_settings = settings.get('WEBC', {})
+    if webc_settings:
+        webc_simulated = webc_settings.get('simulated', True)
+        webc_width = webc_settings.get('width', 640)
+        webc_height = webc_settings.get('height', 480)
+        webc_fps = webc_settings.get('fps', 10)
+
+        if webc_simulated:
+            from simulators.webcam import WebcamSimulator
+            webcam = WebcamSimulator(width=webc_width, height=webc_height, fps=webc_fps)
+            webcam.start()
+            print("[WEBC] Webcam simulator started")
+        else:
+            from sensors.webcam import Webcam
+            webcam = Webcam(device_index=webc_settings.get('device_index', 0),
+                          width=webc_width, height=webc_height, fps=webc_fps)
+            webcam.start()
+            print("[WEBC] Webcam started")
+
+        # Publish webcam status
+        publish_sensor_data("WEBC", "webcam_status",
+                          json.dumps({"active": True, "width": webc_width,
+                                     "height": webc_height, "fps": webc_fps,
+                                     "simulated": webc_simulated}),
+                          webc_simulated, "status")
+
     # ---- MQTT Command Subscriber (for web app commands) ----
     command_client = mqtt.Client(client_id="pi1_command_listener")
 
@@ -1048,6 +1137,31 @@ def main():
                     n = int(payload.get("seconds", 10))
                     kitchen_timer.set_btn_seconds(n)
 
+            elif topic == "pi1/commands/brgb":
+                action = payload.get("action")
+                if brgb:
+                    if action == "on":
+                        brgb.turn_on()
+                    elif action == "off":
+                        brgb.turn_off()
+                    elif action == "toggle":
+                        brgb.toggle()
+                    elif action == "set_color":
+                        r = int(payload.get("r", 255))
+                        g = int(payload.get("g", 255))
+                        b = int(payload.get("b", 255))
+                        brgb.set_color(r, g, b)
+                    elif action == "set_color_name":
+                        name = payload.get("color", "white")
+                        brgb.set_color_name(name)
+                    elif action == "brightness":
+                        val = int(payload.get("value", 100))
+                        brgb.set_brightness(val)
+                    elif action == "brightness_up":
+                        brgb.brightness_up()
+                    elif action == "brightness_down":
+                        brgb.brightness_down()
+
         except Exception as e:
             print(f"[MQTT-CMD] Error processing command: {e}")
 
@@ -1073,6 +1187,11 @@ def main():
             ts = kitchen_timer.get_state()
             publish_sensor_data("TIMER", "timer_state",
                               json.dumps(ts), True, "state")
+            # Publish BRGB state
+            if brgb:
+                publish_sensor_data("BRGB", "rgb_led",
+                                  json.dumps(brgb.get_state()),
+                                  brgb_settings.get('simulated', True), "rgb")
             time.sleep(10)
 
     state_thread = threading.Thread(target=state_publisher, daemon=True)
@@ -1091,6 +1210,9 @@ def main():
     print("  timer start  - Start timer")
     print("  timer stop   - Stop timer")
     print("  timer add N  - Add N seconds")
+    print("  rgb on/off   - BRGB light on/off")
+    print("  rgb COLOR    - Set BRGB color (red/green/blue/etc)")
+    print("  rgb R G B    - Set BRGB custom RGB (0-255)")
     print("  status     - Show system status")
     print("  exit       - Exit application")
     print("=" * 50)
@@ -1134,6 +1256,25 @@ def main():
                             kitchen_timer.add_seconds(int(parts[2]))
                         else:
                             print("Timer commands: timer set N, timer start, timer stop, timer add N")
+                elif cmd.startswith("rgb "):
+                    parts = cmd.split()
+                    if brgb and len(parts) >= 2:
+                        rcmd = parts[1]
+                        if rcmd == "on":
+                            brgb.turn_on()
+                        elif rcmd == "off":
+                            brgb.turn_off()
+                        elif len(parts) == 4:
+                            # rgb R G B
+                            try:
+                                brgb.set_color(int(parts[1]), int(parts[2]), int(parts[3]))
+                            except ValueError:
+                                print("Usage: rgb R G B (0-255)")
+                        else:
+                            # Try as color name
+                            brgb.set_color_name(rcmd)
+                    elif not brgb:
+                        print("BRGB not initialized")
                 elif cmd == "status":
                     print(f"\n  Alarm: {alarm.state}")
                     if alarm.alarm_reason:
@@ -1145,8 +1286,13 @@ def main():
                     print(f"  Timer: {ts['display']} ({'running' if ts['running'] else 'stopped'})")
                     if ts['blinking']:
                         print("  Timer: BLINKING (press BTN to stop)")
+                    if brgb:
+                        bs = brgb.get_state()
+                        print(f"  BRGB: {'ON' if bs['on'] else 'OFF'} RGB({bs['r']},{bs['g']},{bs['b']}) @ {bs['brightness']}%")
+                    if webcam:
+                        print(f"  Webcam: {'Active' if webcam.running else 'Stopped'}")
                 elif cmd == "menu":
-                    print("Commands: arm, disarm, led on/off, buzz on/off/beep, timer ..., status, exit")
+                    print("Commands: arm, disarm, led on/off, buzz on/off/beep, rgb on/off/COLOR, timer ..., status, exit")
                 else:
                     print("Unknown command. Type 'menu' for help.")
             except EOFError:
@@ -1161,6 +1307,10 @@ def main():
             buzzer.turn_off()
         if led:
             led.turn_off()
+        if brgb:
+            brgb.turn_off()
+        if webcam:
+            webcam.stop()
 
         command_client.loop_stop()
         command_client.disconnect()

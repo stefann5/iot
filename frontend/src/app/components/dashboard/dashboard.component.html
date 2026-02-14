@@ -182,6 +182,93 @@
     </p-panel>
   </div>
 
+  <!-- BRGB RGB Light Control (Feature 9) -->
+  <div class="col-12 lg:col-6">
+    <p-panel header="Bedroom RGB Light (BRGB)" [toggleable]="true">
+      <div class="flex flex-column gap-3">
+        <div class="flex align-items-center gap-3">
+          <div class="brgb-preview" [style.background-color]="brgbOn ? getBrgbColorStyle() : '#333'"
+               style="width: 60px; height: 60px; border-radius: 50%; border: 2px solid #555; transition: background-color 0.3s;">
+          </div>
+          <div class="flex-grow-1">
+            <p class="text-xl font-bold mb-1">
+              <p-tag [value]="brgbOn ? 'ON' : 'OFF'" [severity]="brgbOn ? 'warning' : 'info'"></p-tag>
+            </p>
+            <p class="text-sm text-400">RGB({{ brgbR }}, {{ brgbG }}, {{ brgbB }}) @ {{ brgbBrightness }}%</p>
+          </div>
+          <div class="flex gap-2">
+            <button pButton icon="pi pi-power-off" [class]="brgbOn ? 'p-button-warning' : 'p-button-secondary'" (click)="brgbToggle()"></button>
+          </div>
+        </div>
+
+        <!-- Color Presets -->
+        <div>
+          <label class="font-bold text-sm mb-2 block">Quick Colors:</label>
+          <div class="flex gap-2 flex-wrap">
+            <button pButton class="p-button-sm p-button-rounded" style="background-color: #ff0000; border-color: #ff0000;" (click)="brgbSetColor('red')" title="Red"></button>
+            <button pButton class="p-button-sm p-button-rounded" style="background-color: #00ff00; border-color: #00ff00;" (click)="brgbSetColor('green')" title="Green"></button>
+            <button pButton class="p-button-sm p-button-rounded" style="background-color: #0000ff; border-color: #0000ff;" (click)="brgbSetColor('blue')" title="Blue"></button>
+            <button pButton class="p-button-sm p-button-rounded" style="background-color: #ffff00; border-color: #ffff00;" (click)="brgbSetColor('yellow')" title="Yellow"></button>
+            <button pButton class="p-button-sm p-button-rounded" style="background-color: #00ffff; border-color: #00ffff;" (click)="brgbSetColor('cyan')" title="Cyan"></button>
+            <button pButton class="p-button-sm p-button-rounded" style="background-color: #ff00ff; border-color: #ff00ff;" (click)="brgbSetColor('magenta')" title="Magenta"></button>
+            <button pButton class="p-button-sm p-button-rounded" style="background-color: #ffffff; border-color: #aaa; color: #333;" (click)="brgbSetColor('white')" title="White"></button>
+            <button pButton class="p-button-sm p-button-rounded" style="background-color: #ffa500; border-color: #ffa500;" (click)="brgbSetColor('orange')" title="Orange"></button>
+            <button pButton class="p-button-sm p-button-rounded" style="background-color: #800080; border-color: #800080;" (click)="brgbSetColor('purple')" title="Purple"></button>
+          </div>
+        </div>
+
+        <!-- Custom Color Picker -->
+        <div class="flex align-items-center gap-3">
+          <label class="font-bold text-sm">Custom Color:</label>
+          <p-colorPicker [(ngModel)]="brgbColorHex" (onChange)="brgbOnColorPickerChange($event.value)"></p-colorPicker>
+        </div>
+
+        <!-- Brightness Slider -->
+        <div class="flex align-items-center gap-3">
+          <label class="font-bold text-sm w-6rem">Brightness:</label>
+          <p-slider [(ngModel)]="brgbBrightness" [min]="0" [max]="100" styleClass="flex-grow-1" (onSlideEnd)="brgbUpdateBrightness()"></p-slider>
+          <span class="text-sm w-3rem text-right">{{ brgbBrightness }}%</span>
+        </div>
+
+        <!-- IR Remote Info -->
+        <div class="flex align-items-center gap-2 mt-1">
+          <i class="pi pi-wifi text-sm"></i>
+          <span class="text-sm text-400">
+            IR Remote: {{ lastIrButton || 'Waiting...' }}
+            <span *ngIf="lastIrAction"> &rarr; {{ lastIrAction }}</span>
+          </span>
+        </div>
+
+        <p class="text-sm text-400">
+          Control via IR remote (buttons 1-9 = colors, POWER = toggle, VOL = brightness) or web app.
+        </p>
+      </div>
+    </p-panel>
+  </div>
+
+  <!-- Webcam Feed (Feature 10) -->
+  <div class="col-12 lg:col-6">
+    <p-panel header="Door Camera (WEBC)" [toggleable]="true">
+      <div class="flex flex-column gap-2">
+        <div class="webcam-container" style="text-align: center; background: #111; border-radius: 8px; padding: 4px; min-height: 240px;">
+          <img [src]="webcamStreamUrl"
+               alt="Webcam Feed"
+               style="max-width: 100%; height: auto; border-radius: 6px;"
+               onerror="this.alt='Webcam feed unavailable'"
+          />
+        </div>
+        <div class="flex align-items-center justify-content-between">
+          <p-tag [value]="webcamActive ? 'Camera Active' : 'Camera Inactive'"
+                 [severity]="webcamActive ? 'success' : 'info'"></p-tag>
+          <span class="text-sm text-400">
+            <i class="pi pi-video mr-1"></i>
+            Live video feed from door camera
+          </span>
+        </div>
+      </div>
+    </p-panel>
+  </div>
+
   <!-- Sensor Status Cards -->
   <div class="col-12">
     <p-panel header="Sensor & Actuator Status" [toggleable]="true">
