@@ -65,4 +65,46 @@ export class ApiService {
   timerSetBtnSeconds(seconds: number): Observable<any> {
     return this.http.post(`${this.apiUrl}/api/timer`, { action: 'set_btn_seconds', seconds });
   }
+
+  // BRGB API (Feature 9)
+  getBrgbStatus(): Observable<any> {
+    return this.http.get(`${this.apiUrl}/api/brgb`);
+  }
+
+  brgbOn(): Observable<any> {
+    return this.http.post(`${this.apiUrl}/api/brgb`, { action: 'on' });
+  }
+
+  brgbOff(): Observable<any> {
+    return this.http.post(`${this.apiUrl}/api/brgb`, { action: 'off' });
+  }
+
+  brgbToggle(): Observable<any> {
+    return this.http.post(`${this.apiUrl}/api/brgb`, { action: 'toggle' });
+  }
+
+  brgbSetColor(r: number, g: number, b: number): Observable<any> {
+    return this.http.post(`${this.apiUrl}/api/brgb`, { action: 'set_color', r, g, b });
+  }
+
+  brgbSetColorName(color: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/api/brgb`, { action: 'set_color_name', color });
+  }
+
+  brgbSetBrightness(value: number): Observable<any> {
+    return this.http.post(`${this.apiUrl}/api/brgb`, { action: 'brightness', value });
+  }
+
+  // Webcam API (Feature 10)
+  getWebcamStatus(): Observable<any> {
+    return this.http.get(`${this.apiUrl}/api/webcam/status`);
+  }
+
+  getWebcamStreamUrl(): string {
+    return `${this.apiUrl}/api/webcam/stream`;
+  }
+
+  getWebcamFrameUrl(): string {
+    return `${this.apiUrl}/api/webcam/frame`;
+  }
 }

@@ -24,7 +24,10 @@
             "lcd": "pi1/actuators/lcd",
             "segment_display": "pi1/actuators/segment_display",
             "timer_state": "pi1/timer/state",
-            "timer_event": "pi1/timer/event"
+            "timer_event": "pi1/timer/event",
+            "ir_receiver": "pi1/sensors/ir_receiver",
+            "rgb_led": "pi1/actuators/rgb_led",
+            "webcam_status": "pi1/sensors/webcam"
         },
         "batch_interval": 5
     },
@@ -156,5 +159,28 @@
         "pin": 26,
         "name": "Kitchen Button",
         "type": "button"
+    },
+    "IR": {
+        "simulated": true,
+        "pin": 11,
+        "name": "Bedroom IR Receiver",
+        "type": "ir_receiver"
+    },
+    "BRGB": {
+        "simulated": true,
+        "r_pin": 16,
+        "g_pin": 20,
+        "b_pin": 21,
+        "name": "Bedroom RGB LED",
+        "type": "rgb_led"
+    },
+    "WEBC": {
+        "simulated": true,
+        "device_index": 0,
+        "width": 640,
+        "height": 480,
+        "fps": 10,
+        "name": "Door Web Camera",
+        "type": "webcam"
     }
 }
