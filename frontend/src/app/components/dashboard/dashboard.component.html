@@ -110,7 +110,7 @@
         </div>
         <div class="flex align-items-center gap-2">
           <label class="w-6rem">Set Minutes:</label>
-          <p-inputNumber [(ngModel)]="timerInputMinutes" [min]="1" [max]="99" [showButtons]="true" styleClass="w-6rem"></p-inputNumber>
+          <p-inputNumber [(ngModel)]="timerInputMinutes" [min]="1" [max]="99" [showButtons]="true"></p-inputNumber>
           <button pButton label="Set" icon="pi pi-check" class="p-button-sm" (click)="timerSetTime()"></button>
         </div>
         <div class="flex gap-2">
@@ -121,7 +121,7 @@
         </div>
         <div class="flex align-items-center gap-2">
           <label class="w-8rem">BTN adds (sec):</label>
-          <p-inputNumber [(ngModel)]="timerBtnSeconds" [min]="1" [max]="60" [showButtons]="true" styleClass="w-6rem"></p-inputNumber>
+          <p-inputNumber [(ngModel)]="timerBtnSeconds" [min]="1" [max]="60" [showButtons]="true"></p-inputNumber>
           <button pButton label="Save" icon="pi pi-save" class="p-button-sm p-button-secondary" (click)="timerUpdateBtnSeconds()"></button>
         </div>
         <p class="text-sm text-400">
@@ -194,7 +194,7 @@
             <p class="text-xl font-bold mb-1">
               <p-tag [value]="brgbOn ? 'ON' : 'OFF'" [severity]="brgbOn ? 'warning' : 'info'"></p-tag>
             </p>
-            <p class="text-sm text-400">RGB({{ brgbR }}, {{ brgbG }}, {{ brgbB }}) @ {{ brgbBrightness }}%</p>
+            <p class="text-sm text-400">RGB({{ brgbR }}, {{ brgbG }}, {{ brgbB }}) &#64; {{ brgbBrightness }}%</p>
           </div>
           <div class="flex gap-2">
             <button pButton icon="pi pi-power-off" [class]="brgbOn ? 'p-button-warning' : 'p-button-secondary'" (click)="brgbToggle()"></button>
@@ -224,10 +224,9 @@
         </div>
 
         <!-- Brightness Slider -->
-        <div class="flex align-items-center gap-3">
-          <label class="font-bold text-sm w-6rem">Brightness:</label>
-          <p-slider [(ngModel)]="brgbBrightness" [min]="0" [max]="100" styleClass="flex-grow-1" (onSlideEnd)="brgbUpdateBrightness()"></p-slider>
-          <span class="text-sm w-3rem text-right">{{ brgbBrightness }}%</span>
+        <div class="">
+          <label class="">Brightness:</label>
+          <p-slider [(ngModel)]="brgbBrightness" [min]="0" [max]="100" class="w-56" (onSlideEnd)="brgbUpdateBrightness()"></p-slider>
         </div>
 
         <!-- IR Remote Info -->
